@@ -9,9 +9,9 @@ and `sandscrpb` (*Kuai Da Shizi Huangdi*, revised hardware). They share one
 machine configuration and, as the ROM audit confirms, byte-identical graphics
 and sound data; only the 68000 program differs.
 
-**Status: in development.** The video path is verified pixel-exact against
-MAME; the full board runs in simulation; nothing has been built for or run on
-real hardware yet. See `docs/PLAN.md` for the plan and `docs/known-issues.md`
+**Status: in development.** The video path and the whole board are both
+verified pixel-exact against MAME in simulation, and the core synthesises;
+nothing has been built for or run on real hardware yet. See `docs/PLAN.md` for the plan and `docs/known-issues.md`
 for what is measured, what is assumed and what is still open.
 
 ## The board
@@ -33,6 +33,14 @@ for what is measured, what is assumed and what is still open.
 
 Every claim here is a measurement; the method is in `docs/sim-harness.md`.
 
+- **The whole board, run from reset with nothing preloaded, is pixel-exact
+  against MAME**: 18 of 19 dumped frames of the boot sequence match with zero
+  differing pixels at a constant +3 frame offset, up to 14,426 non-blank
+  pixels. The watchdog reboot the game needs in order to boot at all fires at
+  the core's frame 180 against MAME's 179. The one frame that does not match
+  is a boot flash: the core renders one line ahead of the raster like the
+  board, so a palette write during the visible area tears the frame, which
+  MAME (rendering at vblank) never shows.
 - **Video: 61 of 61 frames identical to an independent model of MAME.** Each
   frame is rendered from a MAME state capture and compared three ways — the
   RTL, a Python transcription of MAME's own algorithms sharing no code with
@@ -42,8 +50,15 @@ Every claim here is a measurement; the method is in `docs/sim-harness.md`.
   MAME's own snapshot can reproduce it (`docs/known-issues.md` SS-3).
 - Frames cover the title, the attract demo, the score table, gameplay with
   line scroll active, both layers disabled, and the Flip Screen DIP.
+- **CALC1: 200,000 randomised cases against a transcription of MAME's own
+  collision and multiply code, 0 mismatches**, including values straddling
+  0x8000, sums that overflow 16 bits and deliberately equal coordinates.
 - The seven unit tests inherited from the NMK16 project (SDRAM controller and
   arbiter, ROM caches, OKI cache, video retimer, CRT Adjust chain) all pass.
+- **Synthesis** (`quartus_map`, Cyclone V 5CSEBA6): 5,229 ALMs of 41,910 and
+  1,829,062 block-memory bits of 5,662,720, with every array -- the sprite
+  plane, both line buffers, all eight VRAM lanes, the palette, the work RAM --
+  inferred as real M10K rather than flip-flops.
 
 ## Repository
 
