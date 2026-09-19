@@ -1,0 +1,169 @@
+# MAME reference source tree — 2.8GB, kept locally as the behavioral
+# reference for this port, never part of this project's own history.
+/mame/
+
+# Copyrighted arcade ROM dumps. Never committed under any circumstances.
+/mame_roms/
+
+# .mra files for sets that do not work — here rather than in releases/ so they
+# are never shipped or deployed by accident, and out of git so nothing has to
+# be said about them in the repository's history. One entry so far: powerinsc
+# (Power Instinct USA bootleg set 3), whose sprite ROM format is undeciphered
+# and which draws wrong in MAME too. tools/gen_family_c_mra.py writes it here,
+# not into releases/ — see its NON_WORKING set.
+/.non-working/
+
+# ROM images reconstructed from mame_roms/ (tools/mkrom.py) are just as
+# copyrighted as the zips they came from — never committed. Same caution
+# applied to MAME-oracle traces (sim/oracle/traces/): a full bus trace from
+# reset can indirectly reveal substantial ROM content, so these are
+# regenerated locally (see docs/sim-harness.md) rather than committed,
+# even though they are not literal ROM copies.
+**/roms/*.hex
+# Same reasoning applies to the raw ioctl-download byte streams
+# tools/mk_ioctl_stream.py builds for hardware-mode testbenches (see
+# docs/hw-bringup.md) — literal, undecoded ROM zip bytes.
+**/roms/*.bin
+sim/oracle/traces/
+# MAME m6805 oracle for the M68705R3 sim (sim/rtl/m68705): a PC trace from
+# reset plus the MCU's own port-read sequence — same reasoning as above, it
+# is regenerated locally (see docs/tier7-tharrierb.md).
+sim/rtl/m68705/roms/*.txt
+# working copy the Makefile drops next to the executable for $readmemb
+sim/rtl/m68705/6805.uc
+sim/rtl/gunnail_mg/6805.uc
+sim/rtl/gunnail_mg_hw/6805.uc
+sim/rtl/gunnail_hs/6805.uc
+sim/rtl/*/*.trace
+sim/rtl/*/*.mem
+# Undocumented debug-dump artifacts the vendored jt12/jt6295 cores
+# apparently emit under some simulation configurations — not source,
+# not seen in any other sim/rtl/*/ build directory.
+sim/rtl/*/*.raw
+
+# fx68k's own microcode ROM tables, copied to the project root (same
+# directory Quartus invokes from) so its bare $readmemb("microrom.mem")/
+# $readmemb("nanorom.mem") calls resolve during synthesis — the real
+# files live under the already-gitignored /rtl/third_party/fx68k/, this
+# is just a build-time copy, same as every sim Makefile already does.
+/microrom.mem
+/nanorom.mem
+
+# The MiSTer sys/ framework and the vendored third-party cores ARE committed
+# (2026-09-14), so a clone builds without network access -- the MiSTer
+# core-contribution guidelines expect sys/ to be present, and a reviewer
+# should not need to run tools/bootstrap.sh first. What is committed is the
+# BUILD-REQUIRED subset of each vendored repo, at the commit deps.lock pins:
+# the HDL the .qip files reference, plus each project's LICENSE. The rest of
+# those upstream trees -- datasheets (including third-party scans this project
+# has no business redistributing), testbenches, sample captures, synthesis
+# projects for other toolchains -- is ignored below, which is the difference
+# between 1.7 MB and 57 MB. bootstrap.sh skips any destination that is already
+# populated, so it is now a no-op for these; rm -rf a dep's directory to pull
+# its full upstream tree back down.
+/.bootstrap-staging/
+rtl/third_party/*/doc/
+rtl/third_party/*/ver/
+rtl/third_party/*/cc/
+rtl/third_party/*/cfg/
+rtl/third_party/*/out/
+rtl/third_party/*/target/
+rtl/third_party/*/syn/
+rtl/third_party/*/bin/
+rtl/third_party/*/src/
+rtl/third_party/*/ise/
+rtl/third_party/*/octave/
+rtl/third_party/*/quartus/
+rtl/third_party/*/sgdk/
+rtl/third_party/jt12/jt89/
+rtl/third_party/jt12/jt49/cc/
+rtl/third_party/jt12/jt49/doc/
+rtl/third_party/jt12/jt49/lab/
+rtl/third_party/jt12/jt49/lut/
+rtl/third_party/jt12/jt49/syn/
+rtl/third_party/jt12/jt49/ver/
+
+# Quartus build output and scratch state. One glob rather than a hand-kept
+# list of PROJECT_OUTPUT_DIRECTORY values: the list had gone stale at the
+# NMK16_ core rename (ba5b36a) and still named output_files_raphero/ and
+# output_files_gunnail/ while three of the four real directories --
+# output_files_nmk16_{macross2,gunnail,raphero}/ -- were no longer ignored at
+# all. Nothing tracked begins with output_files, so the glob cannot hide a
+# source file, and it survives the next rename.
+output_files*/
+db/
+incremental_db/
+greybox_tmp/
+# releases/ holds the hand-authored .mra files AND the current .rbf
+# bitstream for each core, copied there from that core's own
+# output_files_nmk16_<family>/ after every build so hardware users get a
+# matching pair without running Quartus.
+/build_id.v
+/jtag.cdf
+sim/rtl/*/.cnxerr
+sim/rtl/*/qmegawiz_errors_log.txt
+# Quartus programming-tool state (quartus_pgm/System Console) generated
+# alongside quartus_asm/sta runs — not source.
+/cfg/
+/snap/
+*.qws
+*.qdb
+*.rpt
+*.summary
+*.smsg
+*.sld
+*.pin
+*.done
+*.jdi
+*.htm
+!docs/**/*.htm
+*.qarlog
+*.sopcinfo
+*.qsys.orig
+*_bak
+c5_pin_model_dump.txt
+PLLJ_PLLSPE_INFO.txt
+
+# Simulation artifacts
+sim/**/obj_dir/
+sim/**/obj_dir_*/
+sim/**/obj_dir48/
+# per-run logs of the multi-game harnesses (sim/rtl/gunnail_mg*)
+sim/rtl/*/*.err
+sim/rtl/gunnail_mg_hw/unfixed_*/
+sim/**/*.vcd
+sim/**/*.fst
+sim/**/*.log
+sim/**/oracle_traces/
+
+# OS / editor cruft
+.DS_Store
+*.swp
+
+# Frame dumps from the sim testbenches (TB_DUMP_PPM). Regenerable, and they
+# pile up fast -- 12,674 of them, 3.2 GB, were cleared on 2026-09-14.
+# NOTE the pattern is deliberately ONE level deep: the 85 frames in
+# sim/rtl/gunnail_mg_hw/prefix_bioship/ are TRACKED, committed with 552c548
+# as the evidence for the swapped sprite column-pair fix on bioship/strahl/
+# acrobatm, and a `sim/**/*.ppm` rule would cover them. Keep any frames
+# worth committing in a subdirectory like that one, and exclude that
+# subdirectory before any bulk `find sim/rtl -name '*.ppm' -delete`.
+sim/rtl/*/*.ppm
+# Per-pixel scanline dumps from the TB_XDUMP probes in the tdragon2 and
+# tdragon2_hw testbenches (see docs/known-issues.md NMK-21b). Multi-MB,
+# regenerable from the committed instrumentation, and named freely on the
+# command line -- write them as *.xdump so they stay out of git. A blanket
+# *.txt rule would be wrong here: sim/rtl/powerins_*/cmp_*.txt are tracked.
+sim/rtl/*/*.xdump
+__pycache__/
+sim/rtl/video_state/dump
+# measurement run directories and build variants of the hardware sims
+sim/rtl/*/obj_base/
+sim/rtl/*/spr_*/
+sim/rtl/*/rom_access.bin
+
+# Derived local mirror of releases/ with the OSD Autofire menu unlocked
+# (<switches> byte 2 bit 6) for the shoot-'em-up sets, same layout, same
+# file names -- written by tools/gen_autofire_mra.py, never committed or
+# deployed by the release scripts. Regenerate it whenever releases/ changes.
+/autofire_releases/
