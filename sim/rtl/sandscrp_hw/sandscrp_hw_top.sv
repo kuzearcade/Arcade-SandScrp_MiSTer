@@ -25,12 +25,22 @@ module sandscrp_hw_top #(
 	input  [24:0] ioctl_addr,
 	input  [7:0]  ioctl_dout,
 	input  [15:0] ioctl_index,
+	output        ioctl_wait,
 
 	output        ce_pix,
 	output [8:0]  hcount, vcount,
 	output        hblank, vblank, vbl_start,
 	output [23:0] rd_rgb,
 	output signed [15:0] snd,
+
+	// golden-byte audit (holds the CPUs in reset while it runs)
+	input         audit_en,
+	input  [2:0]  audit_sel,
+	input  [23:0] audit_addr,
+	output [15:0] audit_data,
+	output        audit_ready,
+	input  [4:0]  dbg_sel,
+	output [31:0] dbg_cnt,
 
 	output        sdram_ready,
 	output [31:0] dbg_ym_writes, dbg_oki_writes, dbg_spr_pass_cycles, dbg_wdog_resets,
@@ -76,7 +86,7 @@ module sandscrp_hw_top #(
 	sandscrp_rom_hw rom_hw (
 		.clk(clk_sys), .reset(reset),
 		.ioctl_download(ioctl_download), .ioctl_wr(ioctl_wr), .ioctl_addr(ioctl_addr),
-		.ioctl_dout(ioctl_dout), .ioctl_index(ioctl_index), .ioctl_wait(),
+		.ioctl_dout(ioctl_dout), .ioctl_index(ioctl_index), .ioctl_wait(ioctl_wait),
 		.prog_word_addr(prog_word_addr), .prog_word_data(prog_word_data), .prog_ready(prog_ready),
 		.z80rom_addr(z80rom_addr), .z80rom_data(z80rom_data), .z80rom_ready(z80rom_ready),
 		.roms_addr(roms_addr), .roms_data(roms_data), .roms_ready(roms_ready),
@@ -90,12 +100,15 @@ module sandscrp_hw_top #(
 		.sd_dout0(p0_dout), .sd_dout1(p1_dout), .sd_dout2(p2_dout), .sd_dout3(p3_dout),
 		.sd_dout0_pair(p0_dout_pair), .sd_dout1_pair(p1_dout_pair),
 		.sd_dout2_pair(p2_dout_pair), .sd_dout3_pair(p3_dout_pair),
+		.audit_en(audit_en), .audit_sel(audit_sel), .audit_addr(audit_addr),
+		.audit_data(audit_data), .audit_ready(audit_ready),
+		.dbg_sel(dbg_sel), .dbg_cnt(dbg_cnt),
 		.dbg_oki_unserved(dbg_oki_unserved)
 	);
 
 	// The CPUs stay in reset for the whole download and until the controller
 	// reports ready, so no cache can be asked for a byte that is not there yet.
-	wire core_reset = reset | ioctl_download | ~sdram_ready;
+	wire core_reset = reset | ioctl_download | ~sdram_ready | audit_en;
 
 	sandscrp_core #(.HW_ROMS(1), .WDOG_CYCLES(WDOG_CYCLES)) core (
 		.clk_sys(clk_sys), .reset(core_reset), .pause(pause),
