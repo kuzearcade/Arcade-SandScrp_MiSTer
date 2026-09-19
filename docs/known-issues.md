@@ -171,3 +171,48 @@ only. The renderer implements all eight and the reference model agrees with
 it, but categories 3, 4 and 6 — including the 4-vs-sprite boundary that
 decides whether a tile covers a sprite — are exercised only by construction,
 never by the game. A synthetic state dump would close this.
+
+## SS-10 — The FM chip makes a sound during boot that MAME does not (OPEN)
+
+Measured on the first whole-board run: the core's mix has an audible burst in
+its first second (RMS 212, peak 8,168 of full scale), while MAME renders
+**silence for the first 15 seconds** and only starts the attract music at
+t = 16 s (RMS ~4,600 from there).
+
+It is not a case of the Z80 doing something different: both sides write the
+YM2203 at the same rate through the boot phase (MAME 4.1 writes per frame;
+the core 274 writes by frame 60, i.e. 4.6 per frame), so the sound CPU is
+executing the same code. Something in the FM state — an envelope, a key-on,
+or jt03's own reset behaviour — is producing output the real chip would not.
+
+Do not chase this from the mix. Isolate first, as NMK16's audio work had to:
+a per-source tap on the core's side, and MAME with `device_volume` zeroed on
+the other chip, then compare the two sources separately. A mix number that
+looks like a uniform offset has already once been an 8-13 dB error in one
+source hiding inside a correct one.
+
+Also note for anyone re-rendering MAME's reference audio: `-wavwrite` with
+`-sound none` writes a perfectly silent WAV and no warning.
+
+## SS-11 — Whole-board simulation matches MAME pixel for pixel (CLOSED, measured)
+
+The complete core — fx68k executing the real program out of ROM, the Z80 and
+its sound chips, CALC1, VIEW2, PANDORA, the palette, the interrupt merger and
+the watchdog, with nothing loaded from a MAME state dump — was run from reset
+and its frames compared against the MAME capture.
+
+- The watchdog reboot that the game needs in order to boot at all (SS-7) fires
+  at the core's frame 180. MAME's fires at its frame 179.
+- Five consecutive dumped frames of the boot animation (frames 250 to 290, with
+  116, 312, 1,582, 1,532 and 3,063 non-blank pixels) are **pixel-exact** against
+  MAME's own frames, all at a constant offset of +3 frames.
+
+The +3 is the expected boot-timer drift between two independent timelines and
+shows up as a diagonal — the same offset across a run of frames — which is how
+NMK16's lesson says to read it, rather than as a single alignment number.
+
+Frames during the boot flash do NOT match, and cannot: the core renders in real
+time, one line ahead of the raster like the board, so a palette write during
+the visible area tears the frame, while MAME renders the whole frame at vblank.
+One such frame was captured half black and half white against MAME's uniform
+white. This is a property of drawing the way the hardware draws.
