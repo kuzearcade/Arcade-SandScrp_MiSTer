@@ -216,3 +216,39 @@ time, one line ahead of the raster like the board, so a palette write during
 the visible area tears the frame, while MAME renders the whole frame at vblank.
 One such frame was captured half black and half white against MAME's uniform
 white. This is a property of drawing the way the hardware draws.
+
+## SS-12 — The hardware ROM path starves both CPUs (OPEN, in progress)
+
+The reference simulation (SS-11) is pixel-exact, but the same core with its
+ROM bytes coming out of the real SDRAM controller does not boot. Three real
+bugs were found and fixed along the way, each invisible to the reference
+simulation because it indexes plain arrays:
+
+1. **The 68000's program address was 15 bits, not 19.** Every read wrapped
+   every 64 KB of a 512 KB ROM; both CPUs executed garbage, the 68000 never
+   reached its own boot-signature write, and the Z80 spun on the YM2203 at 487
+   writes per frame against MAME's 4.1.
+2. **The program cache saw the raw bus address.** `rom_cache_n` refetches on
+   any address change, so every RAM, VRAM or I/O access started a speculative
+   read whose fill can land between the 68000's DTACK sample and its data
+   latch. The address is now held while the bus is not selecting ROM, which is
+   what the NMK16 cores do for the same reason.
+3. **Ports 0 and 1 were wired straight to the controller.** The caches speak
+   `sdram_req.sv`'s handshake, not `rtl/sdram.sv`'s req/ack. The names line up,
+   so it looks right and delivers garbage. Ports 2 and 3 worked from the start
+   because `sdram_arb` contains an `sdram_req` — and, further, the caches HOLD
+   their request high until data arrives while a bare `sdram_req` wants a
+   one-cycle pulse, so even a correct adapter is not enough: every port needs
+   an arbiter, including the ones with a single consumer.
+
+What remains: with all three fixed, nothing executes garbage any more, but both
+CPUs are starved. The 68000 manages 3,530 ROM reads per frame against the
+reference simulation's 40,243, and the Z80 makes no progress at all (0 YM2203
+writes, so its WAIT_n is never released).
+
+The next step is instrumentation, not another guess: per-cache hit/miss and
+request/grant counters on all four ports, and the golden-byte audit the plan
+asks for -- walk every ROM byte through each cache and compare it against the
+image the .mra generator produced. A frame-level symptom cannot distinguish a
+cache that never fills from one that fills with the wrong bytes, and this has
+already cost three wrong theories.

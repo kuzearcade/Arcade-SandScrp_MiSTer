@@ -199,7 +199,15 @@ module sandscrp_core #(
 	// hardware path wrapped every 64 KB and both CPUs executed garbage --
 	// invisible in the reference simulation, which indexes its own array with
 	// the right width. This is what the SDRAM harness is for.
-	assign prog_word_addr = {4'd0, eab[19:1]};
+	//
+	// HELD while the bus is not selecting ROM (NMK16's NMK-21/raphero race):
+	// rom_cache_n refetches on any address change, so handing it the raw bus
+	// address makes every RAM, VRAM or I/O access start a speculative SDRAM
+	// read whose fill can land between the 68000's DTACK sample and its data
+	// latch, and corrupt the word the CPU is in the middle of reading.
+	reg [18:0] prog_addr_held;
+	always @(posedge clk_sys) if (sel_rom) prog_addr_held <= eab[19:1];
+	assign prog_word_addr = {4'd0, sel_rom ? eab[19:1] : prog_addr_held};
 	generate
 	if (!HW_ROMS) begin : g_prog_sim
 		reg [15:0] prog_rom [0:262143];

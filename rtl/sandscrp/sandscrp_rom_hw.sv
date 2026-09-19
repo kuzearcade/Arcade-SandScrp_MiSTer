@@ -76,8 +76,18 @@ module sandscrp_rom_hw (
 	localparam [22:0] BASE_V2   = 23'h1A0000 >> 1;
 	localparam [22:0] BASE_OKI  = 23'h2A0000 >> 1;
 
+	// Every consumer reaches rtl/sdram.sv through rtl/sdram_req.sv, which
+	// turns the caches' req/busy/valid/dout_pair handshake into the
+	// controller's own req/ack protocol. Wiring a cache STRAIGHT to a
+	// controller port (as ports 0 and 1 were at first) looks plausible --
+	// the signal names line up -- and delivers garbage: the 68000 executed
+	// rubbish from the first instruction and never reached its own boot
+	// signature write. sdram_arb already contains an sdram_req, which is why
+	// the two arbitrated ports worked while these two did not.
+
 	// ---------------------------------------------------------------- port 0
-	// The download owns the port while it runs; the cache owns it afterwards.
+	// The download and the 68000 program cache: an arbiter of two, though they
+	// never overlap in time (the CPU is held in reset for the whole download).
 	wire dl_active = ioctl_download & (ioctl_index == 16'd0);
 	reg        dl_req;
 	reg [24:1] dl_addr;
@@ -99,25 +109,65 @@ module sandscrp_rom_hw (
 	assign ioctl_wait = 1'b0;    // one write per byte at the loader's pace; the port keeps up
 
 	wire [24:1] pc_addr;
-	wire        pc_req;
+	wire        pc_req, pc_busy, pc_valid;
+	wire [15:0] pc_dout;
+	wire [31:0] pc_pair;
 	rom_cache_n #(.LINES(16), .PREFETCH(1), .LAST_PAIR(22'h01FFFF)) prog_cache (
 		.clk(clk), .reset(reset),
 		.addr(prog_word_addr), .data(prog_word_data), .ready(prog_ready),
-		.sd_addr(pc_addr), .sd_req(pc_req), .sd_busy(dl_active), .sd_valid(sd_ack0 & ~dl_active),
-		.sd_dout(sd_dout0), .sd_dout_pair(sd_dout0_pair)
+		.sd_addr(pc_addr), .sd_req(pc_req), .sd_busy(pc_busy), .sd_valid(pc_valid),
+		.sd_dout(pc_dout), .sd_dout_pair(pc_pair)
 	);
-	assign sd_addr0 = dl_active ? dl_addr : pc_addr;
-	assign sd_req0  = dl_active ? dl_req  : pc_req;
-	assign sd_wrl0  = dl_active & dl_wrl;
-	assign sd_wrh0  = dl_active & dl_wrh;
-	assign sd_din0  = dl_din;
+	wire [24:1] a0_addr [0:1]; wire a0_we [0:1], a0_wrl [0:1], a0_wrh [0:1];
+	wire [15:0] a0_din [0:1];
+	wire a0_req [0:1], a0_busy [0:1], a0_valid [0:1];
+	wire [15:0] a0_dout [0:1]; wire [31:0] a0_pair [0:1];
+	assign a0_addr[0] = dl_addr;  assign a0_we[0] = 1'b1;
+	assign a0_wrl[0]  = dl_wrl;   assign a0_wrh[0] = dl_wrh;   assign a0_din[0] = dl_din;
+	assign a0_req[0]  = dl_req;
+	assign a0_addr[1] = pc_addr;  assign a0_we[1] = 1'b0;
+	assign a0_wrl[1]  = 1'b0;     assign a0_wrh[1] = 1'b0;     assign a0_din[1] = 16'd0;
+	assign a0_req[1]  = pc_req;
+	assign pc_busy = a0_busy[1]; assign pc_valid = a0_valid[1];
+	assign pc_dout = a0_dout[1]; assign pc_pair  = a0_pair[1];
+	sdram_arb #(.N(2)) arb_prog (
+		.clk(clk), .reset(reset),
+		.i_addr(a0_addr), .i_we(a0_we), .i_wrl(a0_wrl), .i_wrh(a0_wrh), .i_din(a0_din),
+		.i_req(a0_req), .i_busy(a0_busy), .i_valid(a0_valid), .i_dout(a0_dout), .i_dout_pair(a0_pair),
+		.sdram_addr(sd_addr0), .sdram_wrl(sd_wrl0), .sdram_wrh(sd_wrh0), .sdram_din(sd_din0),
+		.sdram_dout(sd_dout0), .sdram_dout_pair(sd_dout0_pair), .sdram_req(sd_req0), .sdram_ack(sd_ack0)
+	);
 
 	// ---------------------------------------------------------------- port 1
+	wire [24:1] sc_addr; wire sc_req, sc_busy, sc_valid;
+	wire [15:0] sc_dout; wire [31:0] sc_pair;
 	rom_cache_n_byte #(.LINES(8), .PREFETCH(1)) spr_cache (
 		.clk(clk), .reset(reset),
 		.base_word(BASE_SPR), .byte_addr(roms_addr), .data(roms_data), .word(), .ready(roms_ready),
-		.sd_addr(sd_addr1), .sd_req(sd_req1), .sd_busy(1'b0), .sd_valid(sd_ack1),
-		.sd_dout(sd_dout1), .sd_dout_pair(sd_dout1_pair)
+		.sd_addr(sc_addr), .sd_req(sc_req), .sd_busy(sc_busy), .sd_valid(sc_valid),
+		.sd_dout(sc_dout), .sd_dout_pair(sc_pair)
+	);
+	// An arbiter of ONE, not a bare sdram_req: these caches HOLD sd_req high
+	// until their data arrives, and sdram_req wants a one-cycle pulse (its own
+	// header says so). Handing a held request to sdram_req starves the
+	// consumer -- the 68000 ran at an eighth of its throughput and the Z80
+	// made no progress at all. sdram_arb is what turns a held request into
+	// that pulse, which is why the arbitrated ports worked from the start.
+	wire [24:1] a1_addr [0:0]; wire a1_we [0:0], a1_wrl [0:0], a1_wrh [0:0];
+	wire [15:0] a1_din [0:0];
+	wire a1_req [0:0], a1_busy [0:0], a1_valid [0:0];
+	wire [15:0] a1_dout [0:0]; wire [31:0] a1_pair [0:0];
+	assign a1_addr[0] = sc_addr; assign a1_we[0] = 1'b0;
+	assign a1_wrl[0] = 1'b0; assign a1_wrh[0] = 1'b0; assign a1_din[0] = 16'd0;
+	assign a1_req[0] = sc_req;
+	assign sc_busy = a1_busy[0]; assign sc_valid = a1_valid[0];
+	assign sc_dout = a1_dout[0]; assign sc_pair = a1_pair[0];
+	sdram_arb #(.N(1)) arb_spr (
+		.clk(clk), .reset(reset),
+		.i_addr(a1_addr), .i_we(a1_we), .i_wrl(a1_wrl), .i_wrh(a1_wrh), .i_din(a1_din),
+		.i_req(a1_req), .i_busy(a1_busy), .i_valid(a1_valid), .i_dout(a1_dout), .i_dout_pair(a1_pair),
+		.sdram_addr(sd_addr1), .sdram_wrl(), .sdram_wrh(), .sdram_din(),
+		.sdram_dout(sd_dout1), .sdram_dout_pair(sd_dout1_pair), .sdram_req(sd_req1), .sdram_ack(sd_ack1)
 	);
 
 	// ---------------------------------------------------------------- port 2
