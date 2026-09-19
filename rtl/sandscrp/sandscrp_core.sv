@@ -195,7 +195,11 @@ module sandscrp_core #(
 	// ---- program ROM
 	wire [15:0] rom_dout;
 	wire        rom_ready;
-	assign prog_word_addr = {8'd0, eab[15:1]};
+	// eab[19:1], not eab[15:1]: the program ROM is 512 KB. With 15 bits the
+	// hardware path wrapped every 64 KB and both CPUs executed garbage --
+	// invisible in the reference simulation, which indexes its own array with
+	// the right width. This is what the SDRAM harness is for.
+	assign prog_word_addr = {4'd0, eab[19:1]};
 	generate
 	if (!HW_ROMS) begin : g_prog_sim
 		reg [15:0] prog_rom [0:262143];
