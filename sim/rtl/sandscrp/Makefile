@@ -21,7 +21,10 @@ all: $(OBJ)/Vsandscrp_core
 roms:
 	python3 ../../../tools/gen_sandscrp_mra.py --simroms $(SET)
 
-$(OBJ)/Vsandscrp_core: $(SRC) tb_sandscrp.cpp
+# Makefile is a dependency on purpose: WDOG and the ROM file names are
+# substituted into the verilator command line, so an edit here MUST rebuild.
+# (It did not, and a run spent 20 minutes with the wrong watchdog.)
+$(OBJ)/Vsandscrp_core: $(SRC) tb_sandscrp.cpp Makefile
 	verilator --cc --exe --build -Wall -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSED -Wno-WIDTH \
 		-Wno-PINCONNECTEMPTY -Wno-EOFNEWLINE -Wno-TIMESCALEMOD -Wno-VARHIDDEN -Wno-CASEINCOMPLETE \
 		-Wno-GENUNNAMED -Wno-BLKANDNBLK -Wno-SYNCASYNCNET -Wno-UNOPTFLAT -Wno-MULTIDRIVEN \
