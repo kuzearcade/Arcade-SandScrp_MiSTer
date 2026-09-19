@@ -21,7 +21,7 @@
   <rbf>SandScrp</rbf>
 
   <!-- ROT90 in sandscrp.cpp (a vertical game). -->
-  <rotation>1</rotation>
+  <rotation>vertical (cw)</rotation>
 
   <!-- DSW1 default 0xEF (3 lives, 3 bombs, Normal, 200K/500K), DSW2 0xFF
        (1C/1C, Flip off, Continue on, Demo Sounds on, Service off).

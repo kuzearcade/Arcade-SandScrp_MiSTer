@@ -155,9 +155,10 @@ def write_mra(s):
     print("wrote", os.path.relpath(p, ROOT))
 
 
-# MiSTer <rotation>: kept as one constant so it can be corrected in one place once
-# confirmed on the board against a MAME screenshot (M5). NMK16 shipped 1 for ROT270.
-ROTATION = 1
+# MiSTer <rotation>: Main_MiSTer parses the TEXT ("vertical"/"horizontal", "cw"/"ccw");
+# the official Galaga (MAME ROT90) .mra uses "vertical (cw)", so ROT90 here does too.
+# (A numeric value, as NMK16 shipped, is parsed as horizontal/none.)
+ROTATION = "vertical (cw)"
 
 
 # ---------------------------------------------------------------- load model

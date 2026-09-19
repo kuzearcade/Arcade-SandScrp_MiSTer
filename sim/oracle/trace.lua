@@ -62,6 +62,15 @@
 --                         stdout at startup for a sanity check).
 --   NMKTRACE_ITEM_LABEL  cosmetic label for the above (optional)
 
+-- Arcade-SandScrp: MAME re-runs the autoboot script after every machine
+-- reset (sandscrp's own boot passes through a watchdog soft reset at 3 s);
+-- a second instance would double every tap and truncate the output.
+if _G.nmktrace_loaded then
+	print("[nmktrace] autoboot re-run after a machine reset: ignored")
+	return
+end
+_G.nmktrace_loaded = true
+
 local out_path = os.getenv("NMKTRACE_OUT")
 if not out_path then
 	print("[nmktrace] NMKTRACE_OUT not set, tracer disabled")
@@ -132,11 +141,12 @@ if cpu_tag then
 	if ok and cpu then
 		local space = cpu.spaces[space_name]
 		if space then
-			space:install_read_tap(addr_start, addr_end, "nmktrace_r", function(offset, data, mem_mask)
+			-- handles kept in globals: a discarded handle is garbage-collected and the tap silently stops
+			_G.nmktrace_tap_r = space:install_read_tap(addr_start, addr_end, "nmktrace_r", function(offset, data, mem_mask)
 				out:write(string.format("B %d r %x %x %x\n", cycle_ts(), offset, data, mem_mask))
 				return nil -- don't alter the read
 			end)
-			space:install_write_tap(addr_start, addr_end, "nmktrace_w", function(offset, data, mem_mask)
+			_G.nmktrace_tap_w = space:install_write_tap(addr_start, addr_end, "nmktrace_w", function(offset, data, mem_mask)
 				out:write(string.format("B %d w %x %x %x\n", cycle_ts(), offset, data, mem_mask))
 				return nil -- don't alter the write
 			end)

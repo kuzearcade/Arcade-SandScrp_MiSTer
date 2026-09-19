@@ -19,6 +19,9 @@
 --                      the same instant. The tilemap/palette state is what
 --                      frame F shows; the Pandora RAM is what eof(F) draws,
 --                      i.e. what frame F+1 shows.
+--   state/i<F>.bin     the same four regions read at the IRQ instant of frame F,
+--                      i.e. exactly what MAME rendered frame F from (needs
+--                      SS_TAPS=1; this is the dump tools/ss_state.py prefers)
 --   taps.log           one line per tapped 68000 access:
 --                      <r|w> F vpos addr data mask pc  with vpos derived
 --                      from time_until_vblank_start (MAME's 256-line frame,
@@ -46,6 +49,16 @@ local maxf     = tonumber(os.getenv("SS_FRAMES") or "600")
 local do_pix   = (os.getenv("SS_PIX") or "1") == "1"
 local do_state = (os.getenv("SS_STATE") or "1") == "1"
 local do_taps  = (os.getenv("SS_TAPS") or "1") == "1"
+-- SS_STATE_IRQ=1 (default): dump the VIEW2/palette/Pandora state at the 68000's
+-- FIRST read of the IRQ cause register (0x800001) after each vblank, into
+-- state/i<F>.bin. MAME renders the whole frame at vblank_begin and raises the
+-- interrupt in the same instant, so that read -- the first thing the handler
+-- does, before it writes anything -- is the render instant of frame F.
+-- The frame_done dump (state/s<F>.bin) is a whole frame later: measured on the
+-- 9000-frame attract capture, the handler rewrites the VIEW2 scroll registers
+-- at vpos 218 of every frame, so s<F> is the state frame F+1 was drawn from,
+-- and a scene changing between two frames cannot be rendered from it at all.
+local do_irq   = (os.getenv("SS_STATE_IRQ") or "1") == "1"
 local do_flip  = (os.getenv("SS_FLIP") or "0") == "1"
 local ram_every = tonumber(os.getenv("SS_RAM_EVERY") or "0")  -- dump 64 KB work RAM every N frames (0 = never)
 
@@ -79,6 +92,17 @@ if do_flip then
 end
 
 local dumping = false
+local function dump_state(path)
+	local f = io.open(path, "wb")
+	f:write(space:read_range(0x400000, 0x403fff, 16, 2))
+	f:write(space:read_range(0x300000, 0x30001f, 16, 2))
+	f:write(space:read_range(0x600000, 0x600fff, 16, 2))
+	f:write(space:read_range(0x500000, 0x501fff, 16, 2))
+	f:close()
+end
+
+local irq_done_this_frame = false
+
 local function tapline(kind, offset, data, mask)
 	if dumping then return end
 	local vp, tv = vpos_now()
@@ -88,7 +112,15 @@ end
 if do_taps then
 	-- globals, deliberately
 	ss_tap_w_irq   = space:install_write_tap(0x100000, 0x100001, "ss_irqack", function(o, d, m) tapline("w", o, d, m) end)
-	ss_tap_r_irq   = space:install_read_tap (0x800000, 0x800001, "ss_irqcause", function(o, d, m) tapline("r", o, d, m) end)
+	ss_tap_r_irq   = space:install_read_tap (0x800000, 0x800001, "ss_irqcause", function(o, d, m)
+		tapline("r", o, d, m)
+		if do_irq and not dumping and not irq_done_this_frame then
+			irq_done_this_frame = true
+			dumping = true                       -- read_range re-enters these taps
+			dump_state(string.format("%s/state/i%05d.bin", out, F))
+			dumping = false
+		end
+	end)
 	ss_tap_w_view2 = space:install_write_tap(0x300000, 0x30001f, "ss_view2w", function(o, d, m) tapline("w", o, d, m) end)
 	ss_tap_r_view2 = space:install_read_tap (0x300000, 0x30001f, "ss_view2r", function(o, d, m) tapline("r", o, d, m) end)
 	ss_tap_w_calc  = space:install_write_tap(0x200000, 0x20001f, "ss_calcw",  function(o, d, m) tapline("w", o, d, m) end)
@@ -142,6 +174,7 @@ ss_frame_done = function()
 		f:close()
 	end
 	dumping = false
+	irq_done_this_frame = false
 	idx:write(string.format("%d %d %.6f dsw1=%02x dsw2=%02x\n", F, scr:frame_number(), machine.time:as_double(),
 		ioport.ports[":DSW1"]:read() & 0xff, ioport.ports[":DSW2"]:read() & 0xff))
 	if taps then taps:write(string.format("F %d\n", F)) end
