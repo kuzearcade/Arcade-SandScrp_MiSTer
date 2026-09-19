@@ -60,6 +60,13 @@ local do_taps  = (os.getenv("SS_TAPS") or "1") == "1"
 -- and a scene changing between two frames cannot be rendered from it at all.
 local do_irq   = (os.getenv("SS_STATE_IRQ") or "1") == "1"
 local do_flip  = (os.getenv("SS_FLIP") or "0") == "1"
+-- SS_PLAY=1: hold Coin 1 briefly, then Start 1, then fire continuously, so the
+-- capture reaches actual gameplay. The attract mode never enables VIEW2's line
+-- scroll (0 of 9000 attract frames), so a scrolling STAGE is the only way to
+-- exercise it against MAME.
+local do_play  = (os.getenv("SS_PLAY") or "0") == "1"
+local play_coin  = tonumber(os.getenv("SS_PLAY_COIN")  or "240")   -- frame to insert the coin
+local play_start = tonumber(os.getenv("SS_PLAY_START") or "300")
 local ram_every = tonumber(os.getenv("SS_RAM_EVERY") or "0")  -- dump 64 KB work RAM every N frames (0 = never)
 
 os.execute("mkdir -p '" .. out .. "/frames' '" .. out .. "/state' '" .. out .. "/ram'")
@@ -153,7 +160,39 @@ ss_reset_notifier = emu.add_machine_reset_notifier(function()
 	print(string.format("[ss] machine reset at F=%d time %.4f", F, machine.time:as_double()))
 end)
 
+-- digital input fields, looked up once (ioport_field:set_value / clear_value)
+local fld = {}
+if do_play then
+	for pname, want in pairs({SYSTEM = {["Coin 1"] = "coin", ["1 Player Start"] = "start"},
+	                          P1 = {["P1 Button 1"] = "fire"}}) do
+		local port = ioport.ports[":" .. pname]
+		if port then
+			for name, f in pairs(port.fields) do
+				for k, tag in pairs(want) do if name == k then fld[tag] = f end end
+			end
+		end
+	end
+	local have = {}
+	for k in pairs(fld) do have[#have+1] = k end
+	print("[ss] SS_PLAY: fields found: " .. table.concat(have, ","))
+end
+
+local function play_inputs()
+	if not do_play then return end
+	local function hold(f, from, to)
+		if not f then return end
+		if F == from then f:set_value(1) elseif F == to then f:clear_value() end
+	end
+	hold(fld.coin,  play_coin,  play_coin + 8)
+	hold(fld.start, play_start, play_start + 8)
+	-- autofire from a little after the start: 4 frames on, 4 off
+	if fld.fire and F > play_start + 60 then
+		if (F % 8) == 0 then fld.fire:set_value(1) elseif (F % 8) == 4 then fld.fire:clear_value() end
+	end
+end
+
 ss_frame_done = function()
+	play_inputs()
 	if do_pix then
 		local pix, w, h = scr:pixels()
 		local f = io.open(string.format("%s/frames/f%05d.raw", out, F), "wb")

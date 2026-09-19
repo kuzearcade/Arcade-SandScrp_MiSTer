@@ -231,6 +231,12 @@ module view2_layer #(
 	reg [12:0] code;                // 16-bit code wrapped to 8192 tiles
 	reg        dis_l;
 
+	// The scroll word is a REGISTERED read: its address must be presented one
+	// cycle before the word is used. Presenting it in S_SCR0 and consuming it in
+	// S_SCR1 (as this first did) gives every row the PREVIOUS row's scroll --
+	// invisible in the whole attract mode, which never enables line scroll, and
+	// 22,921 wrong pixels on the first scrolling stage frame that does.
+	wire [8:0]  u_y_next = flip_y ? (((reg_y >> 6) - render_y) + 9'd32) : (render_y + (reg_y >> 6));
 	wire [15:0] scr_sum = reg_x + (ls_en ? r_sq : 16'd0);
 	wire [8:0]  u_x = flip_x ? (rs - {1'b0, sx} - DX) : ({1'b0, sx} + rs + DX);   // mod 512
 	wire [3:0]  px  = u_x[3:0] ^ {4{attr[0]}};   // tile flip X (attr bit 0)
@@ -248,12 +254,13 @@ module view2_layer #(
 		end else begin
 			case (state)
 			S_IDLE: if (line_start) begin
-				buf_sel <= render_y[0];
-				dis_l   <= disable_i;
-				u_y     <= flip_y ? ((reg_y >> 6) - render_y + 9'd32) : (render_y + (reg_y >> 6));
-				state   <= S_SCR0;
+				buf_sel  <= render_y[0];
+				dis_l    <= disable_i;
+				u_y      <= u_y_next;
+				r_saddr  <= u_y_next;        // present the scroll address now...
+				state    <= S_SCR0;
 			end
-			S_SCR0: begin r_saddr <= u_y; state <= S_SCR1; end          // r_sq valid next clock
+			S_SCR0: state <= S_SCR1;                                    // ...it lands at the end of this cycle
 			S_SCR1: begin
 				rs <= scr_sum[14:6];
 				sx <= 8'd0;
