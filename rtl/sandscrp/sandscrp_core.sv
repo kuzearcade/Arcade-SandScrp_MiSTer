@@ -82,13 +82,19 @@ module sandscrp_core #(
 	// SDRAM-side ROM streams (HW_ROMS=1); unused at HW_ROMS=0
 	output     [23:0] rom0_addr, rom1_addr, roms_addr, okirom_addr,
 	input      [7:0]  rom0_data, rom1_data, roms_data, okirom_data,
-	input             rom0_ready, rom1_ready, roms_ready, okirom_ready,
+	input             rom0_ready, rom1_ready, roms_ready,
 	output     [22:0] prog_word_addr,
 	input      [15:0] prog_word_data,
 	input             prog_ready,
 	output     [16:0] z80rom_addr,
 	input      [7:0]  z80rom_data,
 	input             z80rom_ready,
+	// jt6295's ADPCM fetch ignores rom_ok entirely (jt6295_rom.v), so a byte
+	// that has not arrived is used anyway: the OKI cache's STALL must be ANDed
+	// into the chip's cen instead. NMK16 shipped 37.6% stale sample bytes for a
+	// week before this was understood -- "corrupted sound effects" on the board,
+	// nothing at all in simulation.
+	input             okirom_stall,
 
 	// debug / measurement
 	output     [23:0] dbg_m68k_pc_addr,
@@ -414,13 +420,14 @@ module sandscrp_core #(
 	// Z80 sound section
 	// ------------------------------------------------------------------
 	wire [7:0] z80_di_w;
+	wire       z80_wait_n;
 	wire       z80_m1_n, z80_mreq_n, z80_iorq_n, z80_rd_n, z80_wr_n, z80_rfsh_n, z80_halt_n, z80_busak_n;
 	// NMI while latch 0 holds data the Z80 has not read (generic_latch_8's
 	// data_pending_callback). The sound driver's every command arrives this way.
 	wire z80_nmi_n = ~latch_full[0];
 	wire ym_irq_n;
 	T80s z80_cpu (
-		.RESET_n(~sys_reset), .CLK(clk_sys), .CEN(z80_cen & ~pause), .WAIT_n(1'b1),
+		.RESET_n(~sys_reset), .CLK(clk_sys), .CEN(z80_cen & ~pause), .WAIT_n(z80_wait_n),
 		.INT_n(ym_irq_n), .NMI_n(z80_nmi_n), .BUSRQ_n(1'b1), .OUT0(1'b0),
 		.DI(z80_di_w), .M1_n(z80_m1_n), .MREQ_n(z80_mreq_n), .IORQ_n(z80_iorq_n),
 		.RD_n(z80_rd_n), .WR_n(z80_wr_n), .RFSH_n(z80_rfsh_n), .HALT_n(z80_halt_n),
@@ -438,6 +445,9 @@ module sandscrp_core #(
 	wire sel_z80_rom  = z80_mem_re & (z80_a < 16'h8000);
 	wire sel_z80_bank = z80_mem_re & (z80_a >= 16'h8000) & (z80_a < 16'hC000);
 	wire sel_z80_ram  = (z80_a >= 16'hC000) & (z80_a < 16'hE000);
+	// WAIT_n: the Z80's own ROM cache may not have the byte yet (HW_ROMS=1).
+	// Held only during a ROM/bank memory read, so RAM and I/O stay zero-wait.
+	assign z80_wait_n = ~(HW_ROMS[0] & (sel_z80_rom | sel_z80_bank) & ~z80rom_ready);
 	// 128 KB ROM: the fixed window is the first 32 KB, the banked window is any
 	// of eight 16 KB pages of the SAME file (banks 0 and 1 are the fixed half again)
 	assign z80rom_addr = sel_z80_bank ? {2'd0, z80_bank, z80_a[13:0]} : {3'd0, z80_a[15:0]} & 17'h1FFFF;
@@ -513,9 +523,9 @@ module sandscrp_core #(
 	assign okirom_addr = {6'd0, oki_rom_addr};
 	wire signed [13:0] oki_snd;
 	jt6295 #(.INTERPOL(0)) oki (
-		.rst(sys_reset), .clk(clk_sys), .cen(oki_cen), .ss(1'b1),
+		.rst(sys_reset), .clk(clk_sys), .cen(oki_cen & ~(HW_ROMS[0] & okirom_stall)), .ss(1'b1),
 		.wrn(~(oki_wr_hold != 6'd0)), .din(oki_din_latch), .dout(),
-		.rom_addr(oki_rom_addr), .rom_data(oki_rom_byte), .rom_ok(HW_ROMS ? okirom_ready : 1'b1),
+		.rom_addr(oki_rom_addr), .rom_data(oki_rom_byte), .rom_ok(1'b1),
 		.sound(oki_snd), .sample()
 	);
 
