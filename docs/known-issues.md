@@ -304,7 +304,7 @@ that never fills from one that fills with the wrong bytes. Five bugs, and the
 counters named every one of them; the three theories tried before building
 them were all wrong.
 
-## SS-13 — Savestates work, but the round trip is not yet bit-exact (OPEN)
+## SS-13 — Savestates: the image is complete; what remains is sub-frame phase (CLOSED for state, OPEN for pixels)
 
 The engine is wired in and the hard part works. Measured on the reference
 simulation (`sim/rtl/sandscrp`, `TB_SS_SAVE`/`TB_SS_LOAD`/`TB_SS_CMP`):
@@ -333,20 +333,62 @@ prefix matches, and `ss_mi[6:4]==1` covers words 16-31 -- so CALC1's range
 swallowed the 68000's SSP/USP words at 28-31, which read back as CALC1
 registers and were never restored. The ranges are explicit now.
 
-Still on the list of things not in the image, any of which could account for
-the residue:
+### The state-level measurement, and what it found
 
-- the YM2203 address latch (`ym_sh_addr`), and the replay's effect on the
-  chip's timers -- the timer registers are replayed, which restarts them at an
-  arbitrary phase, and the Z80's interrupt cadence follows the timers;
-- PANDORA's displayed-buffer index and any mid-pass FSM state (the plane
-  itself is deliberately not saved -- it is redrawn from the sprite RAM, which
-  is saved);
-- the clock-enable phases of the four dividers, and the raster's phase
-  relative to the CPUs, which is not restorable in principle.
+Rather than infer the gap from where sprites landed, the images were diffed
+word for word. Three saves and one load make the comparison fair: slot 0 is
+the state at T; slot 1 is the state K frames after that save resumes (T+K,
+reached directly); slot 0 is then loaded and slot 2 taken K frames after THAT
+resumes (T+K, reached through a round trip). Slot 1 and slot 2 are the same
+state reached two ways, so every differing word is restore error.
 
-The next measurement is a state-level one rather than another pixel
-comparison: save to slot 0, load it, save again to slot 1, and diff the two
-DDR images word for word. That names the missing words directly instead of
-inferring them from where sprites landed, and it is how this should have been
-approached after the first failure rather than the third.
+| region | words | differ |
+|---|---|---|
+| work RAM | 32,768 | 2 |
+| VIEW2 VRAM (tiles + line scroll) | 8,192 | **0** |
+| palette | 2,048 | **0** |
+| PANDORA sprite RAM | 4,096 | **0** |
+| Z80 RAM | 8,192 | 2 |
+| YM2203 register shadow | 256 | **0** |
+| registers | 128 | **0** |
+
+It named a real bug on its first run. The registers block differed in exactly
+two words: **CALC1's random generator, which free-ran on clk_sys**, so it could
+never survive a round trip -- two runs are never the same number of clocks
+apart, and the game reads that generator. It now advances once per READ of the
+random register, which is both what MAME's `machine().rand()` does (it advances
+per call, not per cycle) and what makes its state a function of state that is
+actually saved. Those two words are now identical, and the CALC1 unit test
+grew an idle clock between reads, because a real bus cycle has one and two
+back-to-back reads without it look like a single held cycle.
+
+**The four words that remain are the two CPUs' own park artifacts**: the
+68000's pushed SR and PC at 0x70fff4 (0x2004 against 0x2000, 0x0b90 against
+0x0b8a -- a couple of instructions apart) and the Z80's equivalent on its own
+stack. They differ because the two saves parked at slightly different
+instructions: the interrupt that parks a CPU lands relative to the raster, and
+a load shifts that phase. Each machine resumes from its own parked PC,
+consistent with its own stack, so this is the floor of the test rather than
+lost state.
+
+### What is still open
+
+The image is complete, but the picture after a round trip is still not
+pixel-identical to the picture the same machine drew without one: 1,539 pixels
+of 3,044 non-blank at the best frame offset, with a clear minimum two frames
+from where the CPU-time alignment predicts.
+
+With the state proven identical word for word, the remaining difference is a
+**sub-frame phase shift**: the park moves where in the frame the game's own
+per-frame update lands, and this core renders in real time, one line ahead of
+the raster, like the board. A mid-frame VRAM write therefore tears at a
+different scanline than it did in the run being compared against -- the same
+property that makes a boot-flash frame come out half black and half white here
+where MAME, which renders whole frames at vblank, shows a uniform one. No
+integer frame offset can cancel a fractional one.
+
+That interpretation is consistent with the evidence but is not yet proven; the
+measurement that would settle it is whether the differing pixels fall in a band
+of scanlines rather than across the objects. The practical check is the board:
+a save and a load there simply have to land on the same scene and keep
+playing.
