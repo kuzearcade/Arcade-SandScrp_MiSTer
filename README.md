@@ -2,7 +2,8 @@
 
 Sand Scorpion (FACE, 1992) for the MiSTer FPGA platform — a from-scratch
 implementation of the Kaneko VIEW2 tilemap chip and PANDORA sprite generator,
-built against MAME `kaneko/sandscrp.cpp` as the behavioural reference.
+built against MAME's `kaneko/sandscrp.cpp` — the driver by **Luca Elia** — as
+the behavioural reference. See [Attribution](#attribution).
 
 One `.rbf` serves all three sets: `sandscrp`, `sandscrpa` (earlier program)
 and `sandscrpb` (*Kuai Da Shizi Huangdi*, revised hardware). They share one
@@ -156,6 +157,22 @@ still not a release: most of the OSD feature set has never been exercised on
 hardware. See `docs/hw-bringup.md` for which gates that leaves open.
 
 ## Attribution
+
+**The MAME driver is the reference this core was built against**, and the
+debt is a large one. `kaneko/sandscrp.cpp` is **by Luca Elia**, who wrote the
+Sand Scorpion driver and is its copyright holder; the Kaneko chip devices this
+project reimplements in RTL are his too, with others: `kan_pand.cpp`, the
+PANDORA sprite generator, by **Luca Elia and David Haywood**; `kaneko_tmap.cpp`,
+the VIEW2 tilemaps, by **Luca Elia and David Haywood**; and `kaneko_hit.cpp`,
+the CALC1 collision and protection chip, by **Luca Elia, David Haywood and
+Stephane Humbert**. All four are BSD-3-Clause.
+
+Every behavioural claim in this repository is measured against that code
+running as MAME 0.289. Nothing here is copied from it — the RTL is written from
+scratch and the Python reference renderer is a deliberately independent
+transcription — but the memory map, the chip semantics, the sprite and tilemap
+formats and the machine configuration were all read out of that driver first.
+Without it this core would have been a matter of guesswork against a PCB.
 
 Built on the MiSTer framework and on these cores, fetched by
 `tools/bootstrap.sh` at the commits pinned in `deps.lock`: fx68k (Jorge Cwik),
