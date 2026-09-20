@@ -34,7 +34,13 @@ module sandscrp_ref_top #(
 	output [31:0] dbg_ym_writes, dbg_oki_writes, dbg_spr_pass_cycles, dbg_wdog_resets,
 	output [15:0] dbg_spr_late_swaps, dbg_ram70,
 	output [31:0] dbg_reads_rom, dbg_reads_ram, dbg_writes_ram, dbg_acc_other,
-	output [23:0] dbg_last_other
+	output [23:0] dbg_last_other,
+
+	// Readback into the DDR model, so the testbench can diff two saved images
+	// word for word. A slot is SLOT_STRIDE (0x8000) 64-bit words: a control
+	// word, then the image four state words to a DDR word.
+	input  [16:0] dbg_ddr_addr,
+	output [63:0] dbg_ddr_data
 );
 	localparam integer SS_WORDS = 20'h0E180;
 
@@ -56,6 +62,8 @@ module sandscrp_ref_top #(
 		if (ddr_we) ddr_mem[ddr_idx] <= ddr_din;
 		if (ddr_rd) begin ddr_dout <= ddr_mem[ddr_idx]; ddr_ready <= 1'b1; end
 	end
+
+	assign dbg_ddr_data = ddr_mem[dbg_ddr_addr];
 
 	savestate #(.SS_WORDS(SS_WORDS)) ss (
 		.clk(clk_sys), .reset(reset),

@@ -45,8 +45,12 @@ int main(int argc, char **argv) {
 		top.addr = a; top.din = v; top.we_hi = 1; top.we_lo = 1; tick();
 		top.we_hi = top.we_lo = 0;
 	};
+	// A real bus cycle holds rd high for several clocks and then drops it for
+	// at least one, which is what makes the read edge the chip counts. The
+	// idle tick matters: without it two back-to-back reads look like one held
+	// cycle and the random generator advances once, not twice.
 	auto rd = [&](int a) -> uint16_t {
-		top.addr = a; top.rd = 1; tick(); top.rd = 0; top.eval(); return top.dout;
+		top.addr = a; top.rd = 1; tick(); top.rd = 0; tick(); top.eval(); return top.dout;
 	};
 
 	srand(12345);

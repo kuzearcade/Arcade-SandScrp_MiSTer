@@ -28,8 +28,13 @@
 //   A  random
 // Anything else reads 0 (MAME logs and returns its `data`, which is 0 there).
 //
-// The random source is a 32-bit maximal LFSR clocked every cycle; MAME uses
-// its host RNG, so this cannot match cycle for cycle and does not try to.
+// The random source is a 32-bit maximal LFSR advanced ONCE PER READ of the
+// random register, not once per clock. MAME's own `machine().rand()` advances
+// per call, so this is the closer model -- and it makes the generator's state
+// a function of how many times the game has read it, which is savestate state.
+// A free-running LFSR cannot survive a save/load: the two runs are never the
+// same number of clocks apart, and it showed up as the only bulk-state word
+// that differed across a round trip (docs/known-issues.md SS-13).
 module kaneko_hit (
 	input             clk,
 	input             reset,
@@ -51,6 +56,8 @@ module kaneko_hit (
 );
 	reg [15:0] x1p, x1s, y1p, y1s, x2p, x2s, y2p, y2s, mult_a, mult_b;
 	reg [31:0] lfsr;
+	reg        rnd_rd_d;
+	wire       rnd_rd = rd & (addr == 4'd10);
 
 	wire [15:0] wdata = {we_hi ? din[15:8] : 8'h00, we_lo ? din[7:0] : 8'h00};  // data &= mem_mask
 	wire        we    = we_hi | we_lo;
@@ -84,8 +91,10 @@ module kaneko_hit (
 		if (reset) begin
 			{x1p, x1s, y1p, y1s, x2p, x2s, y2p, y2s, mult_a, mult_b} <= 160'd0;
 			lfsr <= 32'h1234_5678;
+			rnd_rd_d <= 1'b0;
 		end else begin
-			lfsr <= {lfsr[30:0], lfsr[31] ^ lfsr[21] ^ lfsr[1] ^ lfsr[0]};
+			rnd_rd_d <= rnd_rd;
+			if (rnd_rd & ~rnd_rd_d) lfsr <= {lfsr[30:0], lfsr[31] ^ lfsr[21] ^ lfsr[1] ^ lfsr[0]};
 			if (ss_wr) case (ss_sel)
 				4'd0: x1p <= ss_wdata;  4'd1: x1s <= ss_wdata;
 				4'd2: y1p <= ss_wdata;  4'd3: y1s <= ss_wdata;

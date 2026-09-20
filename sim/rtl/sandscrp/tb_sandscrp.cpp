@@ -23,6 +23,19 @@
 //                 round trip that restored everything therefore puts the two
 //                 on the same timeline, and those two frames must be identical.
 //   TB_SS_SLOT    slot 0-3 (default 0)
+//
+//   TB_SS_DIFF=1  the state-level test, which names the missing words instead
+//                 of inferring them from where sprites landed:
+//                   save slot 0 at TB_SS_SAVE            (CPU-time T)
+//                   save slot 1 K frames after that resumes   (CPU-time T+K)
+//                   load slot 0 GAP frames later         (back to T)
+//                   save slot 2 K frames after THAT resumes   (CPU-time T+K)
+//                 Slot 1 and slot 2 are both the state at T+K, one reached
+//                 directly and one through a save/load, so every differing
+//                 word is restore error. K is counted from each resume so the
+//                 two saves park after the same amount of CPU execution.
+//   TB_SS_K       frames from a resume to the paired save (default 10)
+//   TB_SS_GAP     frames from the slot-1 save to the load (default 20)
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
@@ -69,6 +82,10 @@ int main(int argc, char **argv) {
 	const long ss_cmp        = envu("TB_SS_CMP", 30);
 	top.ss_slot = envu("TB_SS_SLOT", 0);
 	top.ss_save = 0; top.ss_load = 0;
+	const bool ss_diff_mode = envu("TB_SS_DIFF", 0) != 0;
+	const long ss_k   = envu("TB_SS_K", 10);
+	const long ss_gap = envu("TB_SS_GAP", 20);
+	long ss_next_frame = -1;           // when the next scheduled request fires
 	int  ss_phase = 0;                 // 0 idle, 1 saving, 2 saved, 3 loading, 4 loaded
 	int  ss_result = 2;                // 0 pass, 1 fail, 2 incomplete
 	bool ss_clear = false;
@@ -108,7 +125,23 @@ int main(int argc, char **argv) {
 			}
 		}
 		if (ss_clear) { top.ss_save = 0; top.ss_load = 0; ss_clear = false; }
-		if (top.ss_done_ok) {
+		if (ss_diff_mode && top.ss_done_ok) {
+			// 1 = slot0 saving, 3 = slot1 saving, 5 = loading slot0, 7 = slot2 saving
+			if (ss_phase == 1) {
+				printf("savestate: slot 0 saved (resumed at frame %ld)\n", frame);
+				ss_next_frame = frame + ss_k; ss_phase = 2;
+			} else if (ss_phase == 3) {
+				printf("savestate: slot 1 saved at frame %ld -- the direct T+K reference\n", frame);
+				ss_next_frame = frame + ss_gap; ss_phase = 4;
+			} else if (ss_phase == 5) {
+				printf("savestate: slot 0 loaded (resumed at frame %ld)\n", frame);
+				ss_next_frame = frame + ss_k; ss_phase = 6;
+			} else if (ss_phase == 7) {
+				printf("savestate: slot 2 saved at frame %ld -- T+K through a round trip\n", frame);
+				ss_phase = 8;
+			}
+			fflush(stdout);
+		} else if (top.ss_done_ok) {
 			if (ss_phase == 1) {
 				ss_phase = 2; ss_save_ok = frame; ss_ref_frame = frame + ss_cmp;
 				printf("savestate: SAVE ok at frame %ld (reference frame will be %ld)\n", frame, ss_ref_frame);
@@ -164,11 +197,69 @@ int main(int argc, char **argv) {
 				ss_phase = 9;
 			}
 			frame++;
-			if (frame == ss_save_frame && ss_phase == 0) {
+			if (ss_diff_mode) {
+				if (frame == ss_save_frame && ss_phase == 0) {
+					top.ss_slot = 0; top.ss_save = 1; ss_clear = true; ss_phase = 1;
+					printf("savestate: saving slot 0 at frame %ld (state T)\n", frame); fflush(stdout);
+				} else if (ss_phase == 2 && frame == ss_next_frame) {
+					top.ss_slot = 1; top.ss_save = 1; ss_clear = true; ss_phase = 3;
+					printf("savestate: saving slot 1 at frame %ld (state T+K, direct)\n", frame); fflush(stdout);
+				} else if (ss_phase == 4 && frame == ss_next_frame) {
+					top.ss_slot = 0; top.ss_load = 1; ss_clear = true; ss_phase = 5;
+					printf("savestate: loading slot 0 at frame %ld\n", frame); fflush(stdout);
+				} else if (ss_phase == 6 && frame == ss_next_frame) {
+					top.ss_slot = 2; top.ss_save = 1; ss_clear = true; ss_phase = 7;
+					printf("savestate: saving slot 2 at frame %ld (state T+K, via a round trip)\n", frame); fflush(stdout);
+				} else if (ss_phase == 8) {
+					// ---- the diff
+					const long SSW = 0x0E180;
+					struct Region { long lo, hi; const char *name; };
+					const Region regions[] = {
+						{0x00000, 0x08000, "work RAM"},
+						{0x08000, 0x0A000, "VIEW2 VRAM (tiles + line scroll)"},
+						{0x0A000, 0x0A800, "palette"},
+						{0x0B000, 0x0C000, "PANDORA sprite RAM"},
+						{0x0C000, 0x0E000, "Z80 RAM"},
+						{0x0E000, 0x0E100, "YM2203 register shadow"},
+						{0x0E100, 0x0E180, "registers"},
+					};
+					auto word_of = [&](int slot, long w) -> uint16_t {
+						uint32_t idx = (uint32_t)slot * 0x8000u + 1u + (uint32_t)(w >> 2);
+						top.dbg_ddr_addr = idx; top.eval();
+						uint64_t d = top.dbg_ddr_data;
+						return (uint16_t)((d >> (16 * (w & 3))) & 0xFFFF);
+					};
+					long total = 0, shown = 0;
+					printf("savestate: word-for-word diff of slot 1 and slot 2 (both the state at T+K)\n");
+					for (const Region &r : regions) {
+						long bad = 0, first = -1;
+						for (long w = r.lo; w < r.hi && w < SSW; w++) {
+							uint16_t a = word_of(1, w), b = word_of(2, w);
+							if (a != b) { if (first < 0) first = w; bad++; }
+						}
+						total += bad;
+						printf("  %-34s %6ld of %5ld words differ%s\n", r.name, bad, r.hi - r.lo,
+						       bad ? "" : "   (identical)");
+						if (bad && shown < 4) {
+							shown++;
+							long printed = 0;
+							for (long w = first; w < r.hi && printed < 8; w++) {
+								uint16_t a = word_of(1, w), b = word_of(2, w);
+								if (a != b) { printf("        word 0x%05lx: direct %04x  round trip %04x\n", w, a, b); printed++; }
+							}
+						}
+					}
+					printf("savestate: %ld of %ld words differ -> %s\n", total, SSW, total ? "FAIL" : "PASS");
+					ss_result = total ? 1 : 0;
+					ss_phase = 9;
+					fflush(stdout);
+				}
+			}
+			if (!ss_diff_mode && frame == ss_save_frame && ss_phase == 0) {
 				top.ss_save = 1; ss_clear = true; ss_phase = 1;
 				printf("savestate: SAVE requested at frame %ld\n", frame); fflush(stdout);
 			}
-			if (frame == ss_load_frame && ss_phase == 2) {
+			if (!ss_diff_mode && frame == ss_load_frame && ss_phase == 2) {
 				top.ss_load = 1; ss_clear = true; ss_phase = 3;
 				printf("savestate: LOAD requested at frame %ld\n", frame); fflush(stdout);
 			}
