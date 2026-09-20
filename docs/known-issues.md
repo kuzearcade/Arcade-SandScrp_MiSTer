@@ -24,6 +24,7 @@ been chased yet.
 | SS-12 | The hardware ROM path starves both CPUs | closed |
 | SS-13 | Savestates: the image is complete, and one bit of it was missing | closed |
 | SS-14 | The sprite RAM was being built out of flip-flops | closed |
+| SS-15 | First bitstream on hardware: a perfectly timed black screen | closed |
 
 ---
 
@@ -483,3 +484,101 @@ the inference. The lesson is the one the measurement supports: **a core-only
 `quartus_map` probe is not a substitute for synthesising the real top level**,
 and the inference messages are worth reading on every build, not just the
 resource totals.
+
+---
+
+## SS-15 — First bitstream on hardware: a perfectly timed black screen (CLOSED, measured)
+
+The first `.rbf` ever put on a DE10-Nano loaded, ran, and drew nothing. The
+native `screenshot` produced a **256x224 PNG of 57,344 pixels, every one of
+them `(0,0,0)`**.
+
+That the screenshot exists at all, and at exactly the right size, is the
+useful half of the measurement. `video_calc` in `hps_io` derives those numbers
+from the core's own DE and sync, so the 48 MHz clock, the PLL lock, the raster,
+`video_retime`'s clock crossing, `crt_chain` and the mixer were all running and
+producing this board's exact visible window on the first try. Only the pixels
+were empty, which puts the fault behind the video path, not in it.
+
+A control ruled out the method: the sibling NMK16 core screenshotted normally
+on the same board minutes later.
+
+### The cause
+
+`sandscrp_rom_hw` **is** the ROM download. Its request register is cleared by
+its reset:
+
+```systemverilog
+always @(posedge clk) begin
+    if (reset) dl_req <= 1'b0;
+    else if (dl_active & ioctl_wr & ~dl_req) begin ... dl_req <= 1'b1; end
+```
+
+so any reset asserted during the transfer leaves `dl_req` permanently clear and
+**not one byte reaches the SDRAM**. It fails silently in the worst way:
+`ioctl_wait = dl_active & (dl_req | a0_busy[0])` is then permanently low, so
+the loader sees no backpressure, streams every byte at full speed and reports
+success. Both CPUs run on whatever the previously loaded core left in the
+SDRAM.
+
+**It took two attempts to fix, and the first one is the interesting part.**
+The obvious culprit was `ioctl_download`, which `SandScrp.sv` had folded into
+the same `reset` it gave the core. Removing it was necessary and not
+sufficient: the framework's own `RESET` is asserted for the load as well.
+`sys/sysmem.sv` drives it from `reset_core_req`, which the HPS raises while it
+sends the ROM. The second bitstream was just as black as the first.
+
+The fix is a power-on-only reset for the loader, held until the PLL locks,
+which is exactly what NMK16's `tdragon2_core` does and for exactly this reason
+-- its comment records the same symptom, "a real hardware-mode test run showed
+0 bytes ever landing". This project adapted that core's top level without
+carrying across the one distinction that mattered.
+
+### How it was found, and the diagnostic that lied
+
+Video was the only working channel out of the design, so the counters were
+painted onto the screen as 8x8 blocks, 32 bits a row, and read back out of the
+PNG.
+
+**The first overlay gave a false negative.** It displayed `sandscrp_rom_hw`'s
+own `dl_raised` and `dl_granted`, which read zero -- and those counters are
+cleared by that block's reset, the very signal under investigation. A perfectly
+healthy download would have read zero too. A counter that is reset by the thing
+you are trying to measure measures nothing.
+
+The second overlay counted in the top level in registers with **no reset at
+all**, which power up at zero and are never cleared. That produced the real
+answer:
+
+| | expected | before the fix | after |
+|---|---|---|---|
+| `ioctl_wr` pulses at index 0 | 0x2E0000 | **0x2E0000** | 0x2E0000 |
+| highest `ioctl_addr` | 0x2DFFFF | **0x2DFFFF** | 0x2DFFFF |
+| SDRAM writes completed | 0x2E0000 | — | **0x2E0000** |
+| 68000 reset SP | 0070FFFE | **001FFFF0** | **0070FFFE** |
+| 68000 reset PC | 0000099A | **000069E0** | **0000099A** |
+
+All 3,014,656 bytes were arriving under the right index at the right addresses,
+and none were being stored. The garbage reset vector is the previous core's ROM
+still sitting in the SDRAM.
+
+With the power-on reset the board boots to the title screen, cycles the attract
+mode and the high-score table, and plays: coin, start and fire on the keyboard
+all work, tilemaps and sprites and the HUD all correct.
+
+### What this says about the M3 gates
+
+Nothing in M3 is invalidated: the golden-byte audit, the frame gate and the
+savestate round trip all exercised `sandscrp_rom_hw` correctly wired, and
+`sim/rtl/sandscrp_hw/sandscrp_hw_top.sv` gets this right --
+
+```systemverilog
+rom_hw ( .clk(clk_sys), .reset(reset), ...
+wire core_reset = reset | ioctl_download | ~sdram_ready | audit_en;
+```
+
+-- it keeps the two resets apart. What the episode says is that **"the hardware
+path is verified in simulation" and "the hardware path is verified" are
+different claims**, and the whole gap between them is the top level, the one
+file no simulation here covers. A first board test should start by proving
+bytes reached the SDRAM, not by looking at a frame.

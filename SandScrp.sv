@@ -226,7 +226,48 @@ end
 wire hs_hold     = |hs_rst_cnt;
 wire hs_core_rst = (hs_rst_cnt > 29'd283000000);         // core reset, first ~0.1 s
 
+// The GAME reset. Held for the whole download, which is right: the CPUs must
+// be quiescent while their ROMs load.
 wire reset = RESET | status[0] | buttons[1] | ioctl_download | ~pll_locked | hs_core_rst;
+
+// The ROM loader's reset, and it is NOT the one above. sandscrp_rom_hw IS the
+// download: it has to keep working through the very window `reset` covers.
+// Its request register is cleared by its reset --
+//
+//     if (reset) dl_req <= 1'b0;
+//
+// -- so any reset that is high during the transfer leaves dl_req permanently
+// clear and not one byte reaches the SDRAM. Worse, ioctl_wait is then
+// permanently low too, so the loader sees no backpressure, streams every byte
+// at full speed and reports success. The board shows a perfectly timed,
+// perfectly black screen while both CPUs execute whatever the previous core
+// left in the memory.
+//
+// This was measured twice on hardware (docs/known-issues.md SS-15). The first
+// version of this file used `reset` here. Removing only `ioctl_download` from
+// it was not enough, because the framework's own RESET is asserted for the
+// load as well: sys/sysmem.sv drives reset_out from reset_core_req, which the
+// HPS raises while it sends the ROM. An on-screen counter proved all 3,014,656
+// bytes arrived at index 0 and reached address 0x2DFFFF, and still nothing was
+// written.
+//
+// So the loader gets a power-on-only reset, exactly as NMK16's tdragon2_core
+// does for the same reason and after the same measurement ("0 bytes ever
+// landing"). It is held until the PLL locks, because these 16 cycles are 333 ns
+// at 48 MHz and a real altpll takes tens of microseconds to lock; without that
+// the countdown can finish on an unstable clock and latch the SDRAM request
+// logic into a state nothing ever resets again.
+reg [3:0] por_cnt = 4'd0;
+reg       por_rst = 1'b1;
+always @(posedge clk_sys) begin
+	if (~pll_locked) begin
+		por_cnt <= 4'd0;
+		por_rst <= 1'b1;
+	end else if (por_rst) begin
+		if (por_cnt == 4'd15) por_rst <= 1'b0;
+		else por_cnt <= por_cnt + 4'd1;
+	end
+end
 
 // ------------------------------------------------------------------
 // Keyboard: MAME's own default bindings, always live, ORed with the pads.
@@ -376,7 +417,7 @@ wire  [7:0] roms_data, rom0_data, rom1_data, okirom_data;
 wire        roms_ready, rom0_ready, rom1_ready, okirom_stall;
 
 sandscrp_rom_hw rom_hw (
-	.clk(clk_sys), .reset(reset),
+	.clk(clk_sys), .reset(por_rst),   // power-on only -- see por_rst's declaration
 	.ioctl_download(ioctl_download), .ioctl_wr(ioctl_wr), .ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout), .ioctl_index(ioctl_index), .ioctl_wait(ioctl_wait),
 	.prog_word_addr(prog_word_addr), .prog_word_data(prog_word_data), .prog_ready(prog_ready),

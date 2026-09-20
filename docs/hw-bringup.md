@@ -19,7 +19,7 @@ the evidence in `docs/known-issues.md`.
 | **M1 Video against MAME state** | done — VIEW2, PANDORA and the compositor are identical to an independent Python model of MAME on **61 of 61** frames, 31 of them additionally pixel-exact against MAME itself |
 | **M2 Full reference sim** | done — the whole board run from reset is **pixel-exact against MAME**, 43 of 44 frames matching once the two independent timelines are allowed to drift |
 | **M3 Hardware-path sim** | done — golden-byte audit **3,801,088 bytes, 0 wrong, 0 timeouts**; frames pixel-exact against MAME through the SDRAM path; sprite pass 106,797 clocks of a frame's 804,864 with 0 late swaps; savestate round trip verified at the state level |
-| **M4 Quartus and board** | building — the top level exists and the full flow runs clean: **18,806 ALMs of 41,910 (45 %), 342 of 553 M10K, timing closed first try** at +0.392 ns worst setup, `.rbf` written. **Nothing has run on a board.** |
+| **M4 Quartus and board** | **boots and plays on a DE10-Nano.** The full Quartus flow runs clean (18,806 ALMs of 41,910, 342 of 553 M10K, timing closed first try), and the third bitstream reaches the title screen, the attract cycle and gameplay on coin/start/fire. Took two black screens to get there — SS-15. Most board gates below are still unchecked |
 | **M5 Feature parity and release** | wired, unverified — the OSD, CRT Adjust, autofire, pause, high scores, cheats and savestates are all instantiated in the top level; none of it has been exercised anywhere but in simulation |
 
 ### What M4 still owes its gates
@@ -31,11 +31,12 @@ plan's M4 gates, and which of them a bitstream alone cannot answer:
 |---|---|
 | Timing met on every clock, worst path identified | **met** — and the worst path is the framework's `pll_hdmi`, exactly where the plan predicted |
 | RAM inference: every array a real M10K, no duplicate copies | **met**, after the fix in SS-14 |
-| Boots to attract on the first `.mra` | not run |
+| Boots to attract on the first `.mra` | **met** — title, attract cycle and high-score table, after SS-15 |
+| Coin, start and play on keyboard | **met** — coin, coin, start, fire, and the ship moves and shoots |
 | Native screenshots of static scenes byte-identical to the reference sim | not run |
 | A demo frame with sprites pixel-identical to the reference sim (the byte-order check) | not run |
 | Audio correlation vs MAME over 60 s | not run |
-| Coin, start and play on keyboard and gamepad | not run |
+| Coin, start and play on a gamepad | not run |
 | All three `.mra` swept | not run |
 
 M5's features are all instantiated and none of them are verified. Their gates
@@ -222,6 +223,54 @@ first run dumped 32 of the 45 and stopped. The shell loop waiting on it never
 noticed, because `pgrep -f Vsandscrp_ref_top` matches the waiting loop's OWN
 command line and therefore always finds a process. Wait on the PID, not on a
 pattern the waiter itself contains.
+
+## 2026-09-20 — First run on a DE10-Nano: it works
+
+Deployed to a board at the end of the same day the top level was written.
+`.rbf` to `/media/fat/_Arcade/cores/`, the three `.mra` to `_Arcade/` and its
+`_alternatives/`, the ROM zips to `games/mame/`, md5 checked at both ends, and
+`load_core` through `/dev/MiSTer_cmd`.
+
+**It took three bitstreams.** The first two drew a perfectly timed black
+screen; the cause and the diagnostic that found it are SS-15, and it is worth
+reading, because the first diagnostic gave a false negative by measuring a
+counter that the signal under investigation resets. The short version is that
+the ROM loader must not be held in reset while it loads, and two separate
+signals were doing it: `ioctl_download`, and the framework's own `RESET`, which
+the HPS raises for the duration of the transfer. The loader now takes a
+power-on-only reset, as NMK16's core does for the same reason.
+
+With that, the third bitstream boots.
+
+| measurement | expected | board |
+|---|---|---|
+| loader writes at ROM index | 0x2E0000 | **0x2E0000** |
+| SDRAM writes completed | 0x2E0000 | **0x2E0000** |
+| highest `ioctl_addr` | 0x2DFFFF | **0x2DFFFF** |
+| 68000 reset stack pointer | 0070FFFE | **0070FFFE** |
+| 68000 reset program counter | 0000099A | **0000099A** |
+
+Every one of the 3,014,656 ROM bytes reaches the SDRAM and the 68000 fetches
+the real reset vector.
+
+**What has been seen on the board.** The title screen with the scorpion
+artwork, the FACE logo and the 1992 copyright; the attract cycle; the "BEST TEN
+FIGHTERS" high-score table with its red-to-yellow gradient; and gameplay after
+coin, coin, start on the keyboard, with the player ship, enemies, bullets, both
+tilemap layers, sprites and the HUD all drawing correctly. Fire and the
+direction keys move and shoot. The picture is sideways at the default
+Orientation, which is correct for a ROT90 game with the framebuffer rotation
+off.
+
+The timing numbers moved very little across the three builds: worst setup slack
++0.392, +0.692 and +0.498 ns, always on the framework's HDMI clock.
+
+### Not yet checked on the board
+
+Orientation and Flip screen, CRT Adjust, the DIP menu, autofire, pause, high
+scores, cheats, savestates, audio against MAME, the other two `.mra`, and a
+frame-level comparison against the reference simulation. Booting and playing is
+the first gate, not the last.
 
 ### The bitstream is tracked
 

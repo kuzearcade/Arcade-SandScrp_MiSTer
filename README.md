@@ -9,19 +9,23 @@ and `sandscrpb` (*Kuai Da Shizi Huangdi*, revised hardware). They share one
 machine configuration and, as the ROM audit confirms, byte-identical graphics
 and sound data; only the 68000 program differs.
 
-**Status: in development, nothing has run on a board.** Milestones 0 to 3 of
+**Status: it boots and plays on real hardware.** Milestones 0 to 3 of
 `docs/PLAN.md` are done and measured: the video path, the whole board, and the
 whole board with every ROM byte coming out of a real SDRAM controller are each
 verified pixel-exact against MAME, and savestates round-trip. Milestone 4 now
-has a MiSTer top level that builds: Quartus 17.0 Lite takes it through
-synthesis, fit, assembly and timing with no errors, using 45 % of the logic and
-62 % of the block RAM, and timing closes on the first attempt. That produces a
-`.rbf`, and a `.rbf` is not a working core — the OSD, the analog and HDMI
-outputs, the ROM load, the savestates and the raster timing have all been
-exercised in simulation and nowhere else. See `docs/PLAN.md` for the plan,
-`docs/hw-bringup.md` for milestone status and the build numbers, and
-`docs/known-issues.md` for what is measured, what is assumed and what is still
-open.
+has a MiSTer top level that builds clean and **runs on a DE10-Nano** — title
+screen, attract cycle, high-score table, and gameplay on coin, start and fire.
+
+![Sand Scorpion running on a DE10-Nano](docs/board/gameplay.png)
+
+That is the first board gate, not the last. Orientation, Flip screen, CRT
+Adjust, the DIP menu, autofire, pause, high scores, cheats, savestates, audio
+against MAME and the other two `.mra` have all been exercised in simulation and
+nowhere else, and no frame-level comparison against the reference simulation
+has been run on the board yet. See `docs/PLAN.md` for the plan,
+`docs/hw-bringup.md` for milestone status, the build numbers and the bring-up
+log, and `docs/known-issues.md` for what is measured, what is assumed and what
+is still open.
 
 ## The board
 
@@ -146,9 +150,9 @@ and closes timing on the default seed:
 The core's own clocks are well clear of the critical path: `clk_ram` and
 `CLK_VIDEO` (96 MHz) at +1.747 ns setup, `clk_sys` (48 MHz) at +4.055 ns.
 
-**A bitstream is not a working core.** The tracked `.rbf` builds and meets
-timing; it has never been powered on. Treat it as something to try on a board,
-not as a release. See `docs/hw-bringup.md` for which gates that leaves open.
+The tracked `.rbf` is the build that boots and plays on a DE10-Nano. It is
+still not a release: most of the OSD feature set has never been exercised on
+hardware. See `docs/hw-bringup.md` for which gates that leaves open.
 
 ## Attribution
 
