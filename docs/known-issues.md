@@ -304,43 +304,27 @@ that never fills from one that fills with the wrong bytes. Five bugs, and the
 counters named every one of them; the three theories tried before building
 them were all wrong.
 
-## SS-13 — Savestates: the image is complete; what remains is sub-frame phase (CLOSED for state, OPEN for pixels)
+## SS-13 — Savestates: the image is complete, and one bit of it was missing (CLOSED, measured)
 
-The engine is wired in and the hard part works. Measured on the reference
-simulation (`sim/rtl/sandscrp`, `TB_SS_SAVE`/`TB_SS_LOAD`/`TB_SS_CMP`):
+The engine is wired in and works end to end on the reference simulation
+(`sim/rtl/sandscrp`, `TB_SS_SAVE`/`TB_SS_LOAD`/`TB_SS_CMP`):
 
-- both CPUs park on request -- the 68000 through a level-7 interrupt into a
+- both CPUs park on request — the 68000 through a level-7 interrupt into a
   monitor served from an overlay at 0x0F0000, the Z80 through NMI into the
   monitor at 0x0066, which on this board shares that address with the game's
   own NMI handler and still coexists with it;
-- the image streams out to DDR and back in, and both operations report success
+- the image streams out to DDR and back, both operations report success
   (`SAVE ok at frame 307`, `LOAD ok at frame 339`);
-- after the load the machine resumes **the correct scene** and keeps running
-  normally -- side by side, the restored frame and the saved one are plainly
-  the same animation.
+- after the load the machine resumes the correct scene and plays on.
 
-What is not right: at the best alignment the restored frame still differs from
-the frame the save run produced by **1,539 pixels of 3,044 non-blank**, and the
-difference sits on the edges of the moving shapes -- the objects are in
-slightly different places, not missing or corrupted. The difference has a
-clear minimum against one reference frame and grows away from it in both
-directions over a +-14 frame window, so it is not a timeline offset that a
-better alignment would absorb.
+### The gate: a word-for-word diff, not a look at the picture
 
-One real bug was found and fixed by this test and is worth recording, because
-it is the kind that only a round trip finds: the register-word decode used
-prefix matches, and `ss_mi[6:4]==1` covers words 16-31 -- so CALC1's range
-swallowed the 68000's SSP/USP words at 28-31, which read back as CALC1
-registers and were never restored. The ranges are explicit now.
-
-### The state-level measurement, and what it found
-
-Rather than infer the gap from where sprites landed, the images were diffed
-word for word. Three saves and one load make the comparison fair: slot 0 is
-the state at T; slot 1 is the state K frames after that save resumes (T+K,
-reached directly); slot 0 is then loaded and slot 2 taken K frames after THAT
-resumes (T+K, reached through a round trip). Slot 1 and slot 2 are the same
-state reached two ways, so every differing word is restore error.
+Three saves and one load make the comparison fair. Slot 0 is the state at T;
+slot 1 is the state K frames after that save resumes (T+K, reached directly);
+slot 0 is then loaded and slot 2 taken K frames after **that** resumes (T+K,
+through a round trip). Slot 1 and slot 2 are the same state reached two ways,
+so every differing word is restore error — named, not inferred from where
+sprites landed.
 
 | region | words | differ |
 |---|---|---|
@@ -352,66 +336,71 @@ state reached two ways, so every differing word is restore error.
 | YM2203 register shadow | 256 | **0** |
 | registers | 128 | **0** |
 
-It named a real bug on its first run. The registers block differed in exactly
-two words: **CALC1's random generator, which free-ran on clk_sys**, so it could
-never survive a round trip -- two runs are never the same number of clocks
-apart, and the game reads that generator. It now advances once per READ of the
-random register, which is both what MAME's `machine().rand()` does (it advances
-per call, not per cycle) and what makes its state a function of state that is
-actually saved. Those two words are now identical, and the CALC1 unit test
-grew an idle clock between reads, because a real bus cycle has one and two
-back-to-back reads without it look like a single held cycle.
+The two remaining work-RAM words and the two Z80-RAM words are the CPUs' own
+park artifacts: the 68000's pushed SR and PC at 0x70fff4 (0x2004 against
+0x2000, 0x0b90 against 0x0b8a — a couple of instructions apart) and the Z80's
+equivalent on its own stack. They differ because the two saves parked at
+slightly different instructions: the interrupt that parks a CPU lands relative
+to the raster, and a load shifts that phase. Each machine resumes from its own
+parked PC, consistent with its own stack, so this is the floor of the test.
 
-**The four words that remain are the two CPUs' own park artifacts**: the
-68000's pushed SR and PC at 0x70fff4 (0x2004 against 0x2000, 0x0b90 against
-0x0b8a -- a couple of instructions apart) and the Z80's equivalent on its own
-stack. They differ because the two saves parked at slightly different
-instructions: the interrupt that parks a CPU lands relative to the raster, and
-a load shifts that phase. Each machine resumes from its own parked PC,
-consistent with its own stack, so this is the floor of the test rather than
-lost state.
+### Three bugs it found, each invisible without it
 
-### The residual picture difference, and what it actually was
+1. **The register-word decode used prefix matches.** `ss_mi[6:4]==1` covers
+   words 16-31, so CALC1's range swallowed the 68000's SSP/USP at words 28-31.
+   They read back as CALC1 registers and were never restored. The ranges are
+   explicit now.
+2. **CALC1's random generator free-ran on clk_sys**, so it could never survive
+   a round trip — two runs are never the same number of clocks apart, and the
+   game reads that generator. It now advances once per **read** of the random
+   register, which is also what MAME's `machine().rand()` does (it advances per
+   call, not per cycle). The CALC1 unit test needed an idle clock between reads
+   to match: a real bus cycle has one, and two back-to-back reads without it
+   look like a single held cycle.
+3. **PANDORA's displayed-plane index was not in the image.** It decides which
+   of the two sprite planes is on screen, so restoring it wrong leaves the
+   sprites permanently one `eof` out of step with the tilemaps. It is saved
+   now, and the sprite engine is frozen while the machine is parked.
+
+### A hypothesis that was wrong, and the measurement that said so
 
 A round trip left 1,539 pixels of 3,044 non-blank different from the picture
-the same machine drew without one. The hypothesis was a **sub-frame phase
-shift** -- the park moving where in the frame the game's per-frame update
+the same machine drew without one. The explanation offered was a **sub-frame
+phase shift**: the park moving where in the frame the game's per-frame update
 lands, tearing at a different scanline, since this core renders one line ahead
 of the raster like the board rather than whole frames at vblank.
 
-**That hypothesis was wrong, and the measurement said so.** Dumping the
-restored frame alongside every reference frame and asking, per row, which one
-it matches:
+It was wrong. Dumping the restored frame alongside every reference frame and
+asking, per row, which one it matches:
 
 - the differing rows span 58-162, which is simply where the objects are (rows
-  0-57 and 163-223 hold no content at all) -- there is no band and no boundary;
-- the per-row best match scatters across seven different reference frames
-  (296-302), where a tear would split cleanly into two;
-- only 9 of 105 rows match any reference frame exactly, where a tear would have
-  most rows matching one side or the other exactly.
+  0-57 and 163-223 hold no content at all) — no band, no boundary;
+- the per-row best match scatters across seven reference frames (296-302),
+  where a tear would split cleanly into two;
+- only 9 of 105 rows match any reference frame exactly, where a tear would
+  have nearly every row matching one side or the other exactly.
 
-The real cause came out of the word diff, run at the same distance the picture
-comparison uses (K=25 rather than K=10). Everything that decides the picture is
-bit-identical -- VIEW2 VRAM, the palette and the PANDORA sprite RAM all 0 words
-different -- and exactly one register word differs:
+The word diff, re-run at the distance the picture comparison actually uses,
+named the cause instead: everything that decides the picture was bit-identical,
+and exactly one register word differed —
 
     word 0x0e124 (misc 36, the PANDORA displayed-plane index): direct 1, round trip 0
 
-The two runs are showing **different sprite buffers**. The sprite table is the
-same, so the sprites are drawn correctly but are one `eof` out of step with the
-tilemaps, which displaces every moving object by one animation step and leaves
-the static tiles alone. That is precisely the signature the row analysis found,
-and nothing like a tear.
+— the two runs were showing different sprite buffers, so every moving object
+sat one animation step out while the static tiles were untouched. That is the
+scattered, object-shaped signature the rows found, and nothing like a tear.
 
-That index is now saved (it is genuine state, and it was not in the image
-before this), and the sprite engine is frozen while the machine is parked. What
-that cannot fix is the parity *re-diverging afterwards*: the plane swaps only
-when a draw pass completes, so two runs parked for different numbers of frames
--- 7 for a save, 9 for a load -- end up an odd number of passes apart. The
-displayed buffer is a function of how many frames have elapsed, and the two
-runs being compared are at different absolute frame numbers by construction.
+### What remains
 
-This is a property of comparing two differently-timed runs, not lost state: on
-hardware there is no reference run to be out of step with, and what matters is
-that a load lands on the same scene with the game playing on, which it does.
-The remaining check is the board.
+The parity can still re-diverge **between two differently-timed runs**: the
+plane swaps only when a draw pass completes, so runs parked for different
+numbers of frames (7 for a save, 9 for a load) end up an odd number of passes
+apart, and the displayed buffer is a function of elapsed frames while the two
+frames being compared sit at different absolute frame numbers by construction.
+
+That is a property of the comparison, not lost state. On hardware there is no
+reference run to be out of step with; what matters is that a load lands on the
+same scene with the game playing on, which it does. The board is the remaining
+check, together with the things savestates always need proving on real
+hardware: no freeze after a save or load, the DDR port shared with
+`screen_rotate`, and `.ss` files only loading into DDR at core start.

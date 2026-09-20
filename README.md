@@ -9,10 +9,14 @@ and `sandscrpb` (*Kuai Da Shizi Huangdi*, revised hardware). They share one
 machine configuration and, as the ROM audit confirms, byte-identical graphics
 and sound data; only the 68000 program differs.
 
-**Status: in development.** The video path and the whole board are both
-verified pixel-exact against MAME in simulation, and the core synthesises;
-nothing has been built for or run on real hardware yet. See `docs/PLAN.md` for the plan and `docs/known-issues.md`
-for what is measured, what is assumed and what is still open.
+**Status: in development.** Milestones 0 to 3 of `docs/PLAN.md` are done and
+measured: the video path, the whole board, and the whole board with every ROM
+byte coming out of a real SDRAM controller are each verified pixel-exact
+against MAME, savestates round-trip, and the core synthesises. Milestones 4
+and 5 — the MiSTer top level, a bitstream, and hardware — have not been
+started, and nothing has run on a board. See `docs/PLAN.md` for the plan,
+`docs/hw-bringup.md` for milestone status, and `docs/known-issues.md` for what
+is measured, what is assumed and what is still open.
 
 ## The board
 
@@ -34,13 +38,15 @@ for what is measured, what is assumed and what is still open.
 Every claim here is a measurement; the method is in `docs/sim-harness.md`.
 
 - **The whole board, run from reset with nothing preloaded, is pixel-exact
-  against MAME**: 18 of 19 dumped frames of the boot sequence match with zero
-  differing pixels at a constant +3 frame offset, up to 14,426 non-blank
-  pixels. The watchdog reboot the game needs in order to boot at all fires at
-  the core's frame 180 against MAME's 179. The one frame that does not match
-  is a boot flash: the core renders one line ahead of the raster like the
-  board, so a palette write during the visible area tears the frame, which
-  MAME (rendering at vblank) never shows.
+  against MAME**: **43 of 44** dumped frames match with zero differing pixels,
+  through the boot sequence, the FACE logo animation and the title screen. The
+  watchdog reboot the game needs in order to boot at all fires at the core's
+  frame 180 against MAME's 179. The offset between the two timelines drifts, as
+  two independently running machines do; held at the single best offset, 27 of
+  43 still match exactly. The one frame that matches at no offset is a boot
+  flash: the core renders one line ahead of the raster like the board, so a
+  palette write during the visible area tears the frame, which MAME (rendering
+  whole frames at vblank) never shows.
 - **The same core with every ROM byte coming out of the real SDRAM controller
   is also pixel-exact against MAME**, and an exhaustive golden-byte audit walks
   all **3,801,088** bytes of every region through the real caches and the real
@@ -57,8 +63,14 @@ Every claim here is a measurement; the method is in `docs/sim-harness.md`.
 - **CALC1: 200,000 randomised cases against a transcription of MAME's own
   collision and multiply code, 0 mismatches**, including values straddling
   0x8000, sums that overflow 16 bits and deliberately equal coordinates.
+- **Savestates round-trip.** Two images of the same state, one reached directly
+  and one through a save and load, are diffed word for word: every region —
+  work RAM, VIEW2 VRAM, palette, sprite RAM, Z80 RAM, the sound-chip shadow and
+  the registers — comes back bit-identical, bar the two CPUs' own parked
+  program counters.
 - The seven unit tests inherited from the NMK16 project (SDRAM controller and
-  arbiter, ROM caches, OKI cache, video retimer, CRT Adjust chain) all pass.
+  arbiter, ROM caches, OKI cache, video retimer, CRT Adjust chain) all pass,
+  alongside the CALC1 test written here.
 - **Synthesis** (`quartus_map`, Cyclone V 5CSEBA6): 5,229 ALMs of 41,910 and
   1,829,062 block-memory bits of 5,662,720, with every array -- the sprite
   plane, both line buffers, all eight VRAM lanes, the palette, the work RAM --
@@ -68,14 +80,17 @@ Every claim here is a measurement; the method is in `docs/sim-harness.md`.
 
     rtl/kaneko/        view2.sv, pandora.sv, kaneko_hit.sv, video_sandscrp.sv,
                        video_timing_sandscrp.sv          -- new RTL
-    rtl/sandscrp/      sandscrp_core.sv                   -- the board
+    rtl/sandscrp/      sandscrp_core.sv    the board, including its savestate bus
+                       sandscrp_rom_hw.sv  the SDRAM side: caches, arbiters, download
     rtl/               SDRAM controller, ROM caches, prefetch, video retimer,
                        CRT Adjust chain, cheats, savestates  -- from Arcade-NMK16_MiSTer
     sim/oracle/        the MAME capture script and bus tracer
-    sim/rtl/           video_state (one frame of video), sandscrp (whole board),
-                       and the inherited unit tests
+    sim/rtl/           video_state    one frame of video from a MAME state dump
+                       sandscrp       the whole board, plus the savestate engine
+                       sandscrp_hw    the same core with real SDRAM underneath
+                       kaneko_hit_test and the inherited unit tests
     tools/             .mra generator + load model, tile decoders, the reference
-                       renderer, the frame gate, board scripts
+                       renderer, the frame gates, board scripts
     releases/          the three .mra files
 
 ## Building the ROM images

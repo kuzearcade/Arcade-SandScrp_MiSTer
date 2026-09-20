@@ -106,6 +106,59 @@ time is roughly 110 seconds of wall clock; reaching the title screen is a
 - Progress lines report the non-blank pixel count alongside the counters, so a
   run that has gone black is visible without waiting for frame dumps.
 
+## `sim/rtl/sandscrp_hw` — the same core with SDRAM underneath
+
+    make roms && make run                 # boot with every ROM byte from SDRAM
+    TB_AUDIT=1 make run                   # the golden-byte audit
+    TB_AUDIT_STEP=997 TB_AUDIT=1 make run # a sparse sweep, in seconds
+
+`sandscrp_hw_top.sv` is the core at `HW_ROMS=1`, `rtl/sandscrp/sandscrp_rom_hw.sv`
+(caches, arbiters, the ioctl download) and the real `rtl/sdram.sv` against
+`sim/models/sdram_model.sv`. The stream arrives in **loader order** from the
+first run: index 0, then the `<switches>` block on index 254 last, with its
+addresses restarting at 0.
+
+Two instruments live here, and between them they found five bugs that no frame
+comparison could have attributed:
+
+- **`TB_AUDIT`** holds the CPUs in reset and drives each cache's address input
+  directly, so every byte of every region can be walked through the real cache
+  and the real controller and compared against the image the `.mra` generator
+  produced. The full sweep is 3,801,088 bytes and takes a few minutes; a
+  `TB_AUDIT_STEP` of a few hundred answers the same question in seconds.
+- **Counters**, read one at a time through `dbg_sel`/`dbg_cnt`: per channel the
+  fetches started, fetches finished and stall cycles; per SDRAM port the
+  requests and acknowledgements; and for the download the requests raised and
+  writes completed. "Requests raised 3014656, writes completed 3014655" is how
+  a single lost write out of three million was found.
+
+## Savestates: `TB_SS_*` in `sim/rtl/sandscrp`
+
+`sandscrp_ref_top.sv` adds `rtl/savestate/savestate.sv` and a behavioural DDR
+model around the core. Two ways to test it, and only the second is worth
+trusting:
+
+    TB_SS_SAVE=300 TB_SS_LOAD=330 TB_SS_CMP=30 TB_SS_WIN=6 make run   # pictures
+    TB_SS_DIFF=1 TB_SS_SAVE=270 TB_SS_K=25 make run                   # state
+
+The picture comparison saves at one frame, loads at another and compares the
+frame K later against what the save run drew K frames after **its** save
+completed — the completion frames, because the CPUs are frozen for the whole
+park, so the state's own clock is the instant the save finished. It compares
+against a window of reference frames and reports the best, since a park freezes
+the CPUs but not the raster.
+
+The state comparison is the one that names things. Three saves and one load:
+slot 0 at T, slot 1 at T+K reached directly, then load slot 0 and take slot 2
+at T+K through the round trip. Slot 1 and slot 2 are the same state reached two
+ways, so the testbench diffs them **word for word** out of the DDR model and
+reports which regions differ. It found a missing sprite-plane index that three
+rounds of looking at pictures had blamed on three different things
+(`docs/known-issues.md` SS-13).
+
+Reach for the word diff first. A picture tells you something is wrong; only the
+word diff tells you which word.
+
 ## Reading the numbers honestly
 
 - Report the non-blank pixel count next to every frame match. "0 differing
@@ -115,3 +168,7 @@ time is roughly 110 seconds of wall clock; reaching the title screen is a
   guarantees it), so later scenes go through `video_state`, not the timeline.
 - A rare-event counter reaching zero is not a fix until there is a
   per-event diagnostic saying which events stopped happening.
+- When a symptom is a picture, the instrument is usually not a better picture.
+  Every bug in the SDRAM path and the savestate image was found by a counter or
+  a byte comparison, and every theory formed from looking at frames first was
+  wrong — three in a row, in both cases.

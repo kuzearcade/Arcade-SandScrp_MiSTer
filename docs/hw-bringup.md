@@ -5,6 +5,31 @@ that was built and measured.
 
 ---
 
+## 2026-09-20 — Milestone status
+
+Where the plan's milestones stand. Everything below is a measurement; the
+method for each is in `docs/sim-harness.md` and the evidence in
+`docs/known-issues.md`.
+
+| | |
+|---|---|
+| **M0 Foundation** | done — repo scaffolded from NMK16 at `ef92781`, all seven inherited unit tests pass, three `.mra` generated from one table with an off-board load model, MAME oracle captures (attract, Flip Screen DIP, scripted gameplay) |
+| **M1 Video against MAME state** | done — VIEW2, PANDORA and the compositor are identical to an independent Python model of MAME on **61 of 61** frames, 31 of them additionally pixel-exact against MAME itself |
+| **M2 Full reference sim** | done — the whole board run from reset is **pixel-exact against MAME**, 43 of 44 frames matching once the two independent timelines are allowed to drift |
+| **M3 Hardware-path sim** | done — golden-byte audit **3,801,088 bytes, 0 wrong, 0 timeouts**; frames pixel-exact against MAME through the SDRAM path; sprite pass 106,797 clocks of a frame's 804,864 with 0 late swaps; savestate round trip verified at the state level |
+| **M4 Quartus and board** | not started — `quartus_map` probes only (below); no fit, no timing, no bitstream, no hardware |
+| **M5 Feature parity and release** | not started — the OSD, CRT Adjust, autofire, pause, high scores and cheats are inherited but nothing is wired into a top level yet |
+
+What M4 needs first is the MiSTer top level (`SandScrp.sv`, the `.qip`/`.qsf`
+project and the CONF_STR), which does not exist yet: the core and its SDRAM
+path are complete and verified, but nothing instantiates them alongside
+`sys/`.
+
+Two things that cannot be settled anywhere but on the board, and should be
+first in the queue when it is available: the raster timing (SS-1, currently a
+parameter defaulted from the closest sibling Kaneko board) and the sprite flip
+(SS-6, where this core deliberately diverges from MAME on measured evidence).
+
 ## 2026-09-19 — Synthesis probe of the core (Quartus 17.0 Lite, 5CSEBA6U23I7)
 
 Before writing any more RTL, a `quartus_map` probe of `sandscrp_core` alone
