@@ -228,6 +228,13 @@ module sandscrp_core #(
 	wire ss_w      = ss_active & ss_wr;
 	wire ss_misc_w = ss_w & ss_sel_misc;
 	wire [6:0] ss_mi = ss_addr[6:0];
+	// Explicit ranges, not prefix matches: ss_mi[6:4]==1 covers 16-31 and so
+	// swallowed the 68000's SSP/USP words at 28-31, which then read back as
+	// CALC1 registers and were never restored.
+	wire ss_is_v2reg = (ss_mi <  7'd16);
+	wire ss_is_calc1 = (ss_mi >= 7'd16) && (ss_mi < 7'd28);
+	wire ss_is_m68k  = (ss_mi >= 7'd28) && (ss_mi < 7'd32);
+	wire ss_is_z80   = (ss_mi >= 7'd32) && (ss_mi < 7'd34);
 	wire m68k_parked, z80_parked;
 	wire [15:0] ss_m68k_rdata, ss_z80_rdata, ss_calc1_rdata;
 	assign ss_frozen = m68k_parked & z80_parked;
@@ -243,7 +250,7 @@ module sandscrp_core #(
 		.park_req(ss_freeze), .parked(m68k_parked), .resume(ss_resume),
 		.eab(eab), .ASn(ASn), .eRWn(eRWn), .FC0(FC0), .FC1(FC1), .FC2(FC2), .oEdb(oEdb),
 		.ipl_park(m68k_ipl_park), .sel_mon(m68k_sel_mon), .mon_data(m68k_mon_data),
-		.ss_sel(ss_addr[1:0]), .ss_wr(ss_misc_w & (ss_mi[6:2] == 5'b00111)), .ss_wdata(ss_wdata), .ss_rdata(ss_m68k_rdata)   // words 28-31
+		.ss_sel(ss_mi[1:0]), .ss_wr(ss_misc_w & ss_is_m68k), .ss_wdata(ss_wdata), .ss_rdata(ss_m68k_rdata)   // words 28-31
 	);
 
 	// ---- program ROM
@@ -307,7 +314,7 @@ module sandscrp_core #(
 	wire        ss_v2vram_w = ss_w & ss_sel_v2vram;
 	wire        ss_pal_w    = ss_w & ss_sel_pal;
 	wire        ss_spr_w    = ss_w & ss_sel_spr;
-	wire        ss_v2reg_w  = ss_misc_w & (ss_mi[6:4] == 3'b000);   // words 0-15
+	wire        ss_v2reg_w  = ss_misc_w & ss_is_v2reg;              // words 0-15
 	reg [12:0] v2vram_a_r; reg [11:0] pandora_a_r; reg [10:0] pal_a_r;
 	always @(posedge clk_sys) begin
 		v2vram_a_r <= v2vram_addr; pandora_a_r <= pandora_addr; pal_a_r <= pal_addr;
@@ -352,7 +359,7 @@ module sandscrp_core #(
 		.clk(clk_sys), .reset(reset), .addr(eab[4:1]), .din(oEdb),
 		.we_hi(sel_calc1 & cpu_write & uds), .we_lo(sel_calc1 & cpu_write & lds),
 		.rd(sel_calc1 & cpu_read), .dout(calc1_dout), .watchdog_strobe(calc1_wdog),
-		.ss_sel(ss_mi[3:0]), .ss_wr(ss_misc_w & (ss_mi[6:4] == 3'b001)), .ss_wdata(ss_wdata), .ss_rdata(ss_calc1_rdata)   // words 16-27
+		.ss_sel(ss_mi[3:0] - 4'd0), .ss_wr(ss_misc_w & ss_is_calc1), .ss_wdata(ss_wdata), .ss_rdata(ss_calc1_rdata)   // words 16-27
 	);
 
 	// ---- interrupts: an INPUT_MERGER_ANY_HIGH of three sources on IPL1
@@ -495,18 +502,14 @@ module sandscrp_core #(
 	// ---- savestate register words (0x0E100 + n) and the image read mux
 	reg [15:0] ss_misc_rd;
 	always @(*) begin
-		case (ss_mi[6:4])
-			3'b000:  ss_misc_rd = v2reg_dout;        // 0-15  VIEW2 registers
-			3'b001:  ss_misc_rd = ss_calc1_rdata;    // 16-27 CALC1 (+ its random generator)
-			default: case (ss_mi)
-				7'd28, 7'd29, 7'd30, 7'd31: ss_misc_rd = ss_m68k_rdata;   // 68000 SSP/USP
-				7'd32, 7'd33:               ss_misc_rd = ss_z80_rdata;    // Z80 SP and interrupt mode
-				7'd34: ss_misc_rd = {latch0, latch1};
-				7'd35: ss_misc_rd = {latch_full, 1'b0, z80_bank, coin_ctr,
-				                     4'd0, vblank_irq, sprite_irq, unknown_irq, spr_flip_r};
-				default: ss_misc_rd = 16'd0;
-			endcase
-		endcase
+		if      (ss_is_v2reg) ss_misc_rd = v2reg_dout;       // 0-15  VIEW2 registers
+		else if (ss_is_calc1) ss_misc_rd = ss_calc1_rdata;   // 16-27 CALC1 and its random generator
+		else if (ss_is_m68k)  ss_misc_rd = ss_m68k_rdata;    // 28-31 68000 SSP/USP
+		else if (ss_is_z80)   ss_misc_rd = ss_z80_rdata;     // 32-33 Z80 SP and interrupt mode
+		else if (ss_mi == 7'd34) ss_misc_rd = {latch0, latch1};
+		else if (ss_mi == 7'd35) ss_misc_rd = {latch_full, 1'b0, z80_bank, coin_ctr,
+		                                       4'd0, vblank_irq, sprite_irq, unknown_irq, spr_flip_r};
+		else ss_misc_rd = 16'd0;
 	end
 	always @(*) begin
 		if      (ss_sel_mainram) ss_rdata = ram_dout;
@@ -569,7 +572,7 @@ module sandscrp_core #(
 		.rd_n(z80_rd_n), .wr_n(z80_wr_n), .wait_n(z80_wait_n),
 		.dout(z80_do), .din_bus(z80_rdata),
 		.nmi_park(z80_nmi_park), .sel_mon(z80_sel_mon), .mon_data(z80_mon_data),
-		.ss_sel(ss_mi[0]), .ss_wr(ss_misc_w & (ss_mi[6:1] == 6'b010000)), .ss_wdata(ss_wdata), .ss_rdata(ss_z80_rdata)   // words 32-33
+		.ss_sel(ss_mi[0]), .ss_wr(ss_misc_w & ss_is_z80), .ss_wdata(ss_wdata), .ss_rdata(ss_z80_rdata)   // words 32-33
 	);
 
 	wire z80_mem_re = ~z80_mreq_n & ~z80_rd_n;

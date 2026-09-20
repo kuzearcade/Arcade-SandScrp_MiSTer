@@ -15,10 +15,13 @@
 //   TB_REPORT     frames between progress lines (default 300)
 //   TB_SS_SAVE=N  request a savestate save at frame N
 //   TB_SS_LOAD=M  request a load at frame M (M > N)
-//   TB_SS_CMP=K   after the load, compare frame M+K against the frame the save
-//                 run produced K frames after N. A round trip that restored
-//                 everything puts the machine on the same timeline, so those
-//                 two frames must be identical.
+//   TB_SS_CMP=K   compare the frame K after the LOAD COMPLETED against the one
+//                 K after the SAVE COMPLETED. The completion frames are what
+//                 matter, not the request frames: the CPUs are frozen for the
+//                 whole park, so the state's own clock is the instant the save
+//                 finished, and the machine resumes from exactly there. A
+//                 round trip that restored everything therefore puts the two
+//                 on the same timeline, and those two frames must be identical.
 //   TB_SS_SLOT    slot 0-3 (default 0)
 #include <cstdio>
 #include <cstdlib>
@@ -69,8 +72,15 @@ int main(int argc, char **argv) {
 	int  ss_phase = 0;                 // 0 idle, 1 saving, 2 saved, 3 loading, 4 loaded
 	int  ss_result = 2;                // 0 pass, 1 fail, 2 incomplete
 	bool ss_clear = false;
-	std::vector<uint8_t> ss_ref_img;   // the frame the save run produced at save+cmp
-	long ss_ref_frame = -1;
+	// A WINDOW of reference frames, not one: the park freezes the CPUs but not
+	// the raster, so a resumed machine can be a frame out of step with the run
+	// it was saved from without having lost any state. Reporting the best
+	// match over the window separates the two, the same way the MAME
+	// comparison does.
+	const long ss_win = envu("TB_SS_WIN", 3);
+	std::vector<std::vector<uint8_t>> ss_ref_imgs;
+	std::vector<long> ss_ref_nums;
+	long ss_ref_frame = -1, ss_save_ok = -1, ss_load_ok = -1;
 
 	std::vector<uint8_t> img(256 * 224 * 3, 0);
 	long frame = -1;
@@ -99,8 +109,15 @@ int main(int argc, char **argv) {
 		}
 		if (ss_clear) { top.ss_save = 0; top.ss_load = 0; ss_clear = false; }
 		if (top.ss_done_ok) {
-			if (ss_phase == 1) { ss_phase = 2; printf("savestate: SAVE ok at frame %ld\n", frame); fflush(stdout); }
-			else if (ss_phase == 3) { ss_phase = 4; printf("savestate: LOAD ok at frame %ld\n", frame); fflush(stdout); }
+			if (ss_phase == 1) {
+				ss_phase = 2; ss_save_ok = frame; ss_ref_frame = frame + ss_cmp;
+				printf("savestate: SAVE ok at frame %ld (reference frame will be %ld)\n", frame, ss_ref_frame);
+				fflush(stdout);
+			} else if (ss_phase == 3) {
+				ss_phase = 4; ss_load_ok = frame;
+				printf("savestate: LOAD ok at frame %ld (comparing frame %ld)\n", frame, frame + ss_cmp);
+				fflush(stdout);
+			}
 		}
 		if (top.ss_done_fail) {
 			printf("savestate: %s FAILED (code %d) at frame %ld\n", ss_phase == 1 ? "SAVE" : "LOAD",
@@ -111,18 +128,37 @@ int main(int argc, char **argv) {
 			if (frame >= dump_from && frame <= dump_to && ((frame - dump_from) % dump_every) == 0)
 				write_ppm(frame);
 			// the frame just finished is in img
-			if (ss_ref_frame >= 0 && frame == ss_ref_frame) { ss_ref_img = img; }
-			if (ss_phase == 4 && ss_load_frame >= 0 && frame == ss_load_frame + ss_cmp) {
-				if (ss_ref_img.empty()) { printf("savestate: no reference frame captured\n"); ss_result = 1; }
+			if (ss_ref_frame >= 0 && frame >= ss_ref_frame - ss_win && frame <= ss_ref_frame + ss_win) {
+				ss_ref_imgs.push_back(img); ss_ref_nums.push_back(frame);
+			}
+			if (ss_phase == 4 && ss_load_ok >= 0 && frame == ss_load_ok + ss_cmp) {
+				if (ss_ref_imgs.empty()) { printf("savestate: no reference frame captured\n"); ss_result = 1; }
 				else {
-					long diff = 0;
-					for (size_t i = 0; i < img.size(); i += 3)
-						if (img[i] != ss_ref_img[i] || img[i+1] != ss_ref_img[i+1] || img[i+2] != ss_ref_img[i+2]) diff++;
 					long nb = 0;
 					for (size_t i = 0; i < img.size(); i += 3) if (img[i] | img[i+1] | img[i+2]) nb++;
-					printf("savestate: round trip frame %ld vs the save run's frame %ld: %ld differing pixels "
-					       "(non-blank %ld) -> %s\n", frame, ss_ref_frame, diff, nb, diff ? "FAIL" : "PASS");
-					ss_result = diff ? 1 : 0;
+					long best = -1, best_n = -1;
+					for (size_t r = 0; r < ss_ref_imgs.size(); r++) {
+						long diff = 0;
+						const std::vector<uint8_t> &ref = ss_ref_imgs[r];
+						for (size_t i = 0; i < img.size(); i += 3)
+							if (img[i] != ref[i] || img[i+1] != ref[i+1] || img[i+2] != ref[i+2]) diff++;
+						printf("savestate:   vs the save run's frame %ld (offset %+ld): %ld differing\n",
+						       ss_ref_nums[r], ss_ref_nums[r] - ss_ref_frame, diff);
+						if (best < 0 || diff < best) { best = diff; best_n = ss_ref_nums[r]; }
+					}
+					printf("savestate: round trip frame %ld: best match is the save run's frame %ld with %ld "
+					       "differing pixels (non-blank %ld) -> %s\n", frame, best_n, best, nb, best ? "FAIL" : "PASS");
+					ss_result = best ? 1 : 0;
+					if (getenv("TB_SS_DUMP")) {
+						auto wr = [&](const char *name, const std::vector<uint8_t> &v) {
+							FILE *g = fopen(name, "wb");
+							if (g) { fprintf(g, "P6\n256 224\n255\n"); fwrite(v.data(), 1, v.size(), g); fclose(g); }
+						};
+						wr("ss_restored.ppm", img);
+						for (size_t r = 0; r < ss_ref_imgs.size(); r++)
+							if (ss_ref_nums[r] == best_n) wr("ss_reference.ppm", ss_ref_imgs[r]);
+						printf("savestate: wrote ss_restored.ppm and ss_reference.ppm\n");
+					}
 				}
 				fflush(stdout);
 				ss_phase = 9;
@@ -130,7 +166,6 @@ int main(int argc, char **argv) {
 			frame++;
 			if (frame == ss_save_frame && ss_phase == 0) {
 				top.ss_save = 1; ss_clear = true; ss_phase = 1;
-				ss_ref_frame = ss_save_frame + ss_cmp;
 				printf("savestate: SAVE requested at frame %ld\n", frame); fflush(stdout);
 			}
 			if (frame == ss_load_frame && ss_phase == 2) {

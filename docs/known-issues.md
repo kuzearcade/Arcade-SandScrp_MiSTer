@@ -303,3 +303,50 @@ The lesson stands as written: a frame-level symptom cannot distinguish a cache
 that never fills from one that fills with the wrong bytes. Five bugs, and the
 counters named every one of them; the three theories tried before building
 them were all wrong.
+
+## SS-13 — Savestates work, but the round trip is not yet bit-exact (OPEN)
+
+The engine is wired in and the hard part works. Measured on the reference
+simulation (`sim/rtl/sandscrp`, `TB_SS_SAVE`/`TB_SS_LOAD`/`TB_SS_CMP`):
+
+- both CPUs park on request -- the 68000 through a level-7 interrupt into a
+  monitor served from an overlay at 0x0F0000, the Z80 through NMI into the
+  monitor at 0x0066, which on this board shares that address with the game's
+  own NMI handler and still coexists with it;
+- the image streams out to DDR and back in, and both operations report success
+  (`SAVE ok at frame 307`, `LOAD ok at frame 339`);
+- after the load the machine resumes **the correct scene** and keeps running
+  normally -- side by side, the restored frame and the saved one are plainly
+  the same animation.
+
+What is not right: at the best alignment the restored frame still differs from
+the frame the save run produced by **1,539 pixels of 3,044 non-blank**, and the
+difference sits on the edges of the moving shapes -- the objects are in
+slightly different places, not missing or corrupted. The difference has a
+clear minimum against one reference frame and grows away from it in both
+directions over a +-14 frame window, so it is not a timeline offset that a
+better alignment would absorb.
+
+One real bug was found and fixed by this test and is worth recording, because
+it is the kind that only a round trip finds: the register-word decode used
+prefix matches, and `ss_mi[6:4]==1` covers words 16-31 -- so CALC1's range
+swallowed the 68000's SSP/USP words at 28-31, which read back as CALC1
+registers and were never restored. The ranges are explicit now.
+
+Still on the list of things not in the image, any of which could account for
+the residue:
+
+- the YM2203 address latch (`ym_sh_addr`), and the replay's effect on the
+  chip's timers -- the timer registers are replayed, which restarts them at an
+  arbitrary phase, and the Z80's interrupt cadence follows the timers;
+- PANDORA's displayed-buffer index and any mid-pass FSM state (the plane
+  itself is deliberately not saved -- it is redrawn from the sprite RAM, which
+  is saved);
+- the clock-enable phases of the four dividers, and the raster's phase
+  relative to the CPUs, which is not restorable in principle.
+
+The next measurement is a state-level one rather than another pixel
+comparison: save to slot 0, load it, save again to slot 1, and diff the two
+DDR images word for word. That names the missing words directly instead of
+inferring them from where sprites landed, and it is how this should have been
+approached after the first failure rather than the third.
