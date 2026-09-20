@@ -324,6 +324,7 @@ module sandscrp_core #(
 	wire pal_ready     = (pal_a_r == pal_addr);
 
 	wire sprite_flip;
+	wire ss_disp_buf;
 	video_sandscrp #(.HW_ROMS(HW_ROMS), .TILES_FILE(TILES_FILE), .SPRITES_FILE(SPRITES_FILE)) video (
 		.clk(clk_sys), .reset(reset),
 		.view2_vram_addr(v2vram_addr), .view2_reg_addr(v2reg_addr),
@@ -342,6 +343,8 @@ module sandscrp_core #(
 		.pandora_rdata(pandora_dout), .pandora_hold(pandora_hold), .pal_rdata(pal_dout),
 		.line_start(line_start), .render_y(render_y), .eof(vbl_start), .vis_start(vis_start),
 		.sprite_flip(sprite_flip),
+		.ss_hold(ss_freeze), .ss_disp_wr(ss_misc_w & (ss_mi == 7'd36)),
+		.ss_disp_in(ss_wdata[0]), .ss_disp_out(ss_disp_buf),
 		.rd_x(rd_x), .rd_y(rd_y), .rd_rgb(rd_rgb),
 		.rom0_addr(rom0_addr), .rom1_addr(rom1_addr), .roms_addr(roms_addr),
 		.rom0_data(rom0_data), .rom1_data(rom1_data), .roms_data(roms_data),
@@ -509,6 +512,7 @@ module sandscrp_core #(
 		else if (ss_mi == 7'd34) ss_misc_rd = {latch0, latch1};
 		else if (ss_mi == 7'd35) ss_misc_rd = {latch_full, 1'b0, z80_bank, coin_ctr,
 		                                       4'd0, vblank_irq, sprite_irq, unknown_irq, spr_flip_r};
+		else if (ss_mi == 7'd36) ss_misc_rd = {15'd0, ss_disp_buf};   // PANDORA displayed plane
 		else ss_misc_rd = 16'd0;
 	end
 	always @(*) begin

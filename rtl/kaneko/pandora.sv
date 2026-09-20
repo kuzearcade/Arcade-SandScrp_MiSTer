@@ -65,6 +65,15 @@ module pandora #(
 	input             eof,                     // one clk pulse at vblank start
 	input             vis_start,               // one clk pulse at the first visible line
 	input             flip,
+	// Savestates: the chip is frozen while the machine is parked, and the
+	// DISPLAYED buffer index is saved. That one bit is real state -- it decides
+	// which of the two planes is on screen, so restoring it wrong leaves the
+	// sprites permanently one frame stale against the tilemaps, which is
+	// exactly what it did (docs/known-issues.md SS-13).
+	input             ss_hold,
+	input             ss_wr,
+	input             ss_disp_in,
+	output            ss_disp_out,
 
 	// tile ROM byte stream (HW_ROMS=1)
 	output     [23:0] rom_addr,
@@ -155,6 +164,7 @@ module pandora #(
 
 	assign cpu_hold = (state == S_SNAP) || (state == S_SNAP_LAST);
 	assign busy     = (state != S_IDLE);
+	assign ss_disp_out = disp_buf;
 
 	// per-pixel address, combinational from the registered unit state
 	wire [3:0] pxs = fx ? ~px : px;
@@ -178,14 +188,14 @@ module pandora #(
 			if (state != S_IDLE) pass_cnt <= pass_cnt + 32'd1;
 			// swap rule: the drawn plane goes on display at eof (or, LAG1, at the
 			// first visible line if the pass finished in time)
-			if (eof) begin
+			if (eof && !ss_hold) begin
 				if (pass_done) begin disp_buf <= draw_buf; pass_done <= 1'b0; end
 				else if (state != S_IDLE) dbg_late_swaps <= dbg_late_swaps + 16'd1;
 			end
-			if (LAG1 && vis_start && pass_done) begin disp_buf <= draw_buf; pass_done <= 1'b0; end
+			if (LAG1 && vis_start && pass_done && !ss_hold) begin disp_buf <= draw_buf; pass_done <= 1'b0; end
 
 			case (state)
-			S_IDLE: if (eof || eof_pending) begin
+			S_IDLE: if ((eof || eof_pending) && !ss_hold) begin
 				eof_pending <= 1'b0;
 				state <= S_SNAP; snap_rd_addr <= 10'd0; snap_ph <= 2'd0; snap_addr <= 10'd0; pass_cnt <= 32'd1;
 				// draw into the plane not on display (if a finished pass is still waiting for
@@ -255,7 +265,9 @@ module pandora #(
 			end
 			default: state <= S_IDLE;
 			endcase
-			if (eof && state != S_IDLE) eof_pending <= 1'b1;
+			if (eof && state != S_IDLE && !ss_hold) eof_pending <= 1'b1;
+			// last, so it wins over any swap decided this cycle
+			if (ss_wr) disp_buf <= ss_disp_in;
 		end
 	end
 endmodule

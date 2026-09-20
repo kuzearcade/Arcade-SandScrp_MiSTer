@@ -188,9 +188,17 @@ int main(int argc, char **argv) {
 							if (g) { fprintf(g, "P6\n256 224\n255\n"); fwrite(v.data(), 1, v.size(), g); fclose(g); }
 						};
 						wr("ss_restored.ppm", img);
-						for (size_t r = 0; r < ss_ref_imgs.size(); r++)
+						// every reference frame, so the row-by-row question can be
+						// asked: is the restored frame a SPLICE of two consecutive
+						// reference frames (a mid-frame tear, i.e. a sub-frame phase
+						// shift) or does it differ from all of them everywhere?
+						for (size_t r = 0; r < ss_ref_imgs.size(); r++) {
+							char nm[64];
+							snprintf(nm, sizeof(nm), "ss_ref_%05ld.ppm", ss_ref_nums[r]);
+							wr(nm, ss_ref_imgs[r]);
 							if (ss_ref_nums[r] == best_n) wr("ss_reference.ppm", ss_ref_imgs[r]);
-						printf("savestate: wrote ss_restored.ppm and ss_reference.ppm\n");
+						}
+						printf("savestate: wrote ss_restored.ppm and %zu ss_ref_*.ppm\n", ss_ref_imgs.size());
 					}
 				}
 				fflush(stdout);

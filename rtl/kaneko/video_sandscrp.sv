@@ -51,6 +51,10 @@ module video_sandscrp #(
 	input             eof,                      // vblank start: Pandora eof
 	input             vis_start,
 	input             sprite_flip,              // irq_cause bit 0
+	input             ss_hold,                  // freeze the sprite engine while parked
+	input             ss_disp_wr,
+	input             ss_disp_in,
+	output            ss_disp_out,
 
 	// readback
 	input      [7:0]  rd_x,
@@ -97,6 +101,7 @@ module video_sandscrp #(
 		.clk(clk), .reset(reset),
 		.cpu_addr(pandora_addr), .cpu_wdata(pandora_wdata), .cpu_we(pandora_we), .cpu_rdata(pandora_rdata), .cpu_hold(pandora_hold),
 		.eof(eof), .vis_start(vis_start), .flip(sprite_flip),
+		.ss_hold(ss_hold), .ss_wr(ss_disp_wr), .ss_disp_in(ss_disp_in), .ss_disp_out(ss_disp_out),
 		.rom_addr(roms_addr), .rom_data_i(roms_data), .rom_ready_i(roms_ready),
 		.rd_x(rd_x), .rd_y(rd_y[7:0] - 8'd16), .rd_pix(spr_pix),
 		.busy(pandora_busy), .dbg_pass_cycles(dbg_pass_cycles), .dbg_late_swaps(dbg_late_swaps)

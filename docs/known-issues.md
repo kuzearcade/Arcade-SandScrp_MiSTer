@@ -371,24 +371,47 @@ a load shifts that phase. Each machine resumes from its own parked PC,
 consistent with its own stack, so this is the floor of the test rather than
 lost state.
 
-### What is still open
+### The residual picture difference, and what it actually was
 
-The image is complete, but the picture after a round trip is still not
-pixel-identical to the picture the same machine drew without one: 1,539 pixels
-of 3,044 non-blank at the best frame offset, with a clear minimum two frames
-from where the CPU-time alignment predicts.
+A round trip left 1,539 pixels of 3,044 non-blank different from the picture
+the same machine drew without one. The hypothesis was a **sub-frame phase
+shift** -- the park moving where in the frame the game's per-frame update
+lands, tearing at a different scanline, since this core renders one line ahead
+of the raster like the board rather than whole frames at vblank.
 
-With the state proven identical word for word, the remaining difference is a
-**sub-frame phase shift**: the park moves where in the frame the game's own
-per-frame update lands, and this core renders in real time, one line ahead of
-the raster, like the board. A mid-frame VRAM write therefore tears at a
-different scanline than it did in the run being compared against -- the same
-property that makes a boot-flash frame come out half black and half white here
-where MAME, which renders whole frames at vblank, shows a uniform one. No
-integer frame offset can cancel a fractional one.
+**That hypothesis was wrong, and the measurement said so.** Dumping the
+restored frame alongside every reference frame and asking, per row, which one
+it matches:
 
-That interpretation is consistent with the evidence but is not yet proven; the
-measurement that would settle it is whether the differing pixels fall in a band
-of scanlines rather than across the objects. The practical check is the board:
-a save and a load there simply have to land on the same scene and keep
-playing.
+- the differing rows span 58-162, which is simply where the objects are (rows
+  0-57 and 163-223 hold no content at all) -- there is no band and no boundary;
+- the per-row best match scatters across seven different reference frames
+  (296-302), where a tear would split cleanly into two;
+- only 9 of 105 rows match any reference frame exactly, where a tear would have
+  most rows matching one side or the other exactly.
+
+The real cause came out of the word diff, run at the same distance the picture
+comparison uses (K=25 rather than K=10). Everything that decides the picture is
+bit-identical -- VIEW2 VRAM, the palette and the PANDORA sprite RAM all 0 words
+different -- and exactly one register word differs:
+
+    word 0x0e124 (misc 36, the PANDORA displayed-plane index): direct 1, round trip 0
+
+The two runs are showing **different sprite buffers**. The sprite table is the
+same, so the sprites are drawn correctly but are one `eof` out of step with the
+tilemaps, which displaces every moving object by one animation step and leaves
+the static tiles alone. That is precisely the signature the row analysis found,
+and nothing like a tear.
+
+That index is now saved (it is genuine state, and it was not in the image
+before this), and the sprite engine is frozen while the machine is parked. What
+that cannot fix is the parity *re-diverging afterwards*: the plane swaps only
+when a draw pass completes, so two runs parked for different numbers of frames
+-- 7 for a save, 9 for a load -- end up an odd number of passes apart. The
+displayed buffer is a function of how many frames have elapsed, and the two
+runs being compared are at different absolute frame numbers by construction.
+
+This is a property of comparing two differently-timed runs, not lost state: on
+hardware there is no reference run to be out of step with, and what matters is
+that a load lands on the same scene with the game playing on, which it does.
+The remaining check is the board.
