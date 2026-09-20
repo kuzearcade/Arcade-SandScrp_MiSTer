@@ -3,7 +3,7 @@
 // set_size(256,256), set_visarea(0,255,16,239)); the values here are the
 // sibling Kaneko/Pandora board snowbros.cpp's confirmed ones (12 MHz/2 pixel
 // clock, 384 pixels per line, 262 lines, visible bitmap rows 16..239, "~57.5
-// Hz confirmed") except VTOTAL, which is a parameter: 262 gives 59.66 Hz,
+// Hz confirmed") except VTOTAL, which is a parameter: 262 gives 59.64 Hz,
 // 264 59.19 Hz at 15.625 kHz. A PCB measurement should settle it (see
 // docs/known-issues.md SS-1). Everything timing-related hangs off these
 // parameters; no magic numbers elsewhere.

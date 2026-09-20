@@ -45,7 +45,7 @@ board — `kaneko/snowbros.cpp`, same PANDORA chip, `set_size(32*8, 262)` and
 |---|---|---|
 | pixel clock | 12 MHz / 2 = 6 MHz | |
 | `HTOTAL` | 384 | 15.625 kHz line rate |
-| `VTOTAL` | 262 | 59.66 Hz |
+| `VTOTAL` | 262 | 59.64 Hz |
 | visible | x 0..255, bitmap rows 16..239 | 256x224 |
 
 `VTOTAL` 264 would give 59.19 Hz. **A PCB measurement is the only way to
@@ -215,6 +215,40 @@ source hiding inside a correct one.
 
 Also note for anyone re-rendering MAME's reference audio: `-wavwrite` with
 `-sound none` writes a perfectly silent WAV and no warning.
+
+### 2026-09-20: measured over the attract music
+
+A 30 s capture of the core against the same MAME render, compared over the 13 s
+window where both are playing (MAME is silent until 15.58 s):
+
+| | |
+|---|---|
+| Alignment | core lags MAME by 50 ms |
+| Mean band correlation, 24 bands | **0.62** (the M2 gate is 0.95) |
+| Envelope correlation | 0.56-0.70 |
+| Level | core **4.97 dB** quieter, RMS 3,872 against 6,859 |
+
+So the sound CPU reaches the same tune at the same moment and every band
+correlates positively — the failure is in level and envelope, not in timing or
+in which notes play. The boot burst above is reproduced unchanged (core RMS 212
+at reset, MAME silent).
+
+Two candidate explanations were tested and **eliminated**:
+
+- **Not aliasing in the testbench.** Its 48 kHz dump is a naive decimation with
+  no anti-alias filter. Low-passing both sides at 24, 12, 8, 4 and 2 kHz leaves
+  the envelope correlation at 0.56 at every cutoff.
+- **Not MAME's output effects.** MAME 0.289 puts Filters, Compressor, Reverb
+  and Equalizer in the speaker's default chain. Re-rendering with the chain
+  removed from `cfg/sandscrp.cfg` gives a **bit-identical** file.
+
+The isolation this entry has always called for is still the next step, and it
+is now clear what blocks it: MAME exposes no per-device gain. Lua does not bind
+`set_output_gain`, and the `<mixer>` block in the config carries the speaker's
+node map rather than device volumes. Isolating will mean a per-source tap on
+the core's side (`dbg_ym_snd` / `dbg_oki_snd` are already on the core, just not
+wired through `sandscrp_ref_top` to the testbench) and, on MAME's side, a
+method yet to be found.
 
 ## SS-11 — Whole-board simulation matches MAME pixel for pixel (CLOSED, measured)
 

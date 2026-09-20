@@ -403,6 +403,112 @@ all four of its cores rebuilt and the change verified on the board with
 NMK16_Macross2 running Thunder Dragon 2: Alt+F2 writes nothing, Alt+F5 writes
 slot 2.
 
+## 2026-09-20 — Audio against MAME, performance, and cycle accuracy
+
+Three measurements against the same reference MAME build (0.289) that every
+other claim here uses.
+
+### Cycle accuracy: the clocks are exact, the frame is 0.6 % long
+
+Every chip clock divides exactly out of the 48 MHz `clk_sys` and lands on
+MAME's own number:
+
+| | core | MAME | delta |
+|---|---|---|---|
+| 68000 | 12.0000 MHz | 12.0000 MHz | 0.000 % |
+| Z80, YM2203 | 4.0000 MHz | 4.0000 MHz | 0.000 % |
+| OKIM6295 | 2.0000 MHz | 2.0000 MHz | 0.000 % |
+| pixel | 6.0000 MHz | 6.0000 MHz | 0.000 % |
+| line rate | 15,625 Hz | 15,625 Hz | 0.000 % |
+| **frame rate** | **59.6374 Hz** | **60.0000 Hz** | **-0.604 %** |
+
+The frame is the only divergence, and it is SS-1 rather than a bug: MAME's
+figure is `set_refresh_hz(60)` written by hand in a driver that says its vblank
+time is "not accurate", while the core's comes from the sibling Kaneko board's
+confirmed 384 x 262 raster. The sim's measured frame period, 804,864 `clk_sys`
+cycles = 201,216 68000 cycles, matches the raster parameters exactly.
+
+**How fast the 68000 actually executes**, which is the part a frame rate does
+not tell you. `sim/oracle/traces/sandscrp/boot_68k_io.trace` records every
+MAME bus access outside the program ROM for 600 frames from reset; the core's
+own counters were read at the same frame:
+
+| reset -> frame ~600 | core | MAME |
+|---|---|---|
+| 68000 cycles | 120,729,601 | 120,000,000 |
+| non-ROM bus accesses | 4,879,020 | 4,839,013 |
+| accesses per cycle | 0.040413 | 0.040325 |
+
+**+0.217 %**, about one part in 460 over 120 million cycles. Per frame the core
+does 0.827 % more work, of which 0.608 % is just the longer frame; the residue
+is the execution-rate difference. It is a rate comparison over a long span, not
+an instruction-for-instruction match — the two timelines are not identical
+(the watchdog reboot lands at core frame 180 against MAME's 187) and the two
+sides count accesses with different filters.
+
+### Performance: the sprite engine uses a tenth of its frame
+
+868 frames of real gameplay through the hardware path (`sandscrp_hw`, real
+SDRAM controller and model), coin and start and fire scripted in:
+
+| | |
+|---|---|
+| PANDORA pass, worst observed | 84,415 cycles, **10.5 %** of a frame |
+| PANDORA pass, typical | 80,767 cycles, 10.0 % |
+| **Late swaps** | **0** — the sprite engine never missed a deadline |
+| OKI fetch stalls, whole run | 3,206 cycles, **0.00046 %** of run time |
+| ROM byte reads | 34,222 per frame, one every 23.5 cycles |
+
+The sprite pass is the only hard per-frame deadline in this design — it has to
+snapshot 512 entries, clear a plane and draw it between two vblanks — and it
+finishes with 89.5 % of the frame still unused.
+
+One counter needs reading carefully: `okistall` already stands at 27,142,655 at
+frame 0 and moves by 3,206 across the entire run. That bulk accrues during the
+ROM download, while the CPUs are held in reset and the OKI cache is empty; it
+is not a runtime cost. Taking the raw cumulative figure would report a 3.9 %
+stall rate where the true one is four ten-thousandths of a percent.
+
+### Audio: right tune, right time, 5 dB quiet — does not meet the gate
+
+MAME renders silence for the first **15.58 s** and then the attract music, so a
+30 s capture of the core gives a 13 s window where both are playing. Over it:
+
+| | |
+|---|---|
+| Alignment | core lags MAME by **50 ms** |
+| Mean band correlation (24 bands) | **0.62** — the plan's gate is 0.95 |
+| Envelope correlation | 0.56 to 0.70 |
+| Level | core **4.97 dB** quieter (RMS 3,872 against 6,859) |
+
+What is right: the music starts on the same second, and all 24 bands correlate
+positively, so the sound CPU reaches the same tune at the same point in the
+program. What is wrong: the core is uniformly quiet and its envelope only
+loosely tracks MAME's.
+
+Two explanations were tested and **ruled out**, rather than assumed:
+
+- **Not aliasing from the testbench's sampling.** The dump is a naive 48 kHz
+  decimation with no anti-alias filter, which is a fair suspicion. Low-passing
+  both sides at 24, 12, 8, 4 and 2 kHz leaves the envelope correlation at 0.56
+  throughout.
+- **Not MAME's own effects.** MAME 0.289 puts Filters, Compressor, Reverb and
+  Equalizer in the speaker's default chain, which would flatter the reference.
+  Re-rendering with the chain removed from `cfg/sandscrp.cfg` produced a
+  **bit-identical** file, so it is not touching `-wavwrite`.
+
+SS-10 is reproduced exactly: the core emits a burst at reset (RMS 212) where
+MAME is silent.
+
+**The honest limit of this measurement.** It compares mixes, which SS-10
+explicitly warns against. It is close to an FM-only comparison in practice --
+the OKI takes one write in 300 frames of attract -- but not by construction.
+Real isolation needs a per-source tap on the core side, and MAME exposes no
+per-device gain through either its Lua interface (`set_output_gain` is not
+bound) or its config file (`<mixer>` carries the speaker map, not device
+volumes). That is the next step on SS-10, and it is a harness change, not a
+core change.
+
 ## 2026-09-20 — Distribution: an XML defect, and the core in a downloader database
 
 The core is now published through
