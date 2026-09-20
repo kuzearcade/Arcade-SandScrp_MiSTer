@@ -286,6 +286,19 @@ made 278 YM2203 writes against the reference's 274, with ROM reads within
 1.7 % (2,454,833 against 2,414,590 -- the difference is the SDRAM latency the
 reference simulation does not have).
 
+And the picture that comes out of it, compared against MAME's own frames:
+
+| hardware-path frame | MAME frame | differing pixels | non-blank |
+|---|---|---|---|
+| 260 | 264 | **0** | 314 |
+| 280 | 284 | **0** | 1,687 |
+| 300 | 304 | **0** | 3,940 |
+
+Pixel-exact, at a constant +4 offset -- one frame later than the reference
+simulation's +3 (SS-11), which is the SDRAM latency the reference path does
+not have. The sprite pass takes 106,797 clocks of a frame's 804,864, with 0
+late swaps.
+
 The lesson stands as written: a frame-level symptom cannot distinguish a cache
 that never fills from one that fills with the wrong bytes. Five bugs, and the
 counters named every one of them; the three theories tried before building

@@ -41,6 +41,10 @@ Every claim here is a measurement; the method is in `docs/sim-harness.md`.
   is a boot flash: the core renders one line ahead of the raster like the
   board, so a palette write during the visible area tears the frame, which
   MAME (rendering at vblank) never shows.
+- **The same core with every ROM byte coming out of the real SDRAM controller
+  is also pixel-exact against MAME**, and an exhaustive golden-byte audit walks
+  all **3,801,088** bytes of every region through the real caches and the real
+  controller with **0 wrong and 0 timeouts**.
 - **Video: 61 of 61 frames identical to an independent model of MAME.** Each
   frame is rendered from a MAME state capture and compared three ways — the
   RTL, a Python transcription of MAME's own algorithms sharing no code with
