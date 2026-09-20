@@ -96,6 +96,31 @@ module sandscrp_core #(
 	// nothing at all in simulation.
 	input             okirom_stall,
 
+	// ------------------------------------------------------------------
+	// Savestates (rtl/savestate/savestate.sv drives this bus). The image is
+	// 0x0E180 words, and it is only meaningful while both CPUs are parked:
+	//   0x00000-0x07FFF  work RAM            32768 words
+	//   0x08000-0x09FFF  VIEW2 VRAM           8192 words (tiles + line scroll)
+	//   0x0A000-0x0A7FF  palette              2048 words
+	//   0x0B000-0x0BFFF  PANDORA sprite RAM   4096 words, one byte each
+	//   0x0C000-0x0DFFF  Z80 RAM              8192 words, one byte each
+	//   0x0E000-0x0E0FF  YM2203 register shadow          256 words
+	//   0x0E100-0x0E17F  registers (ss_misc_rd below)    128 words
+	// The PANDORA plane is NOT in the image: a load waits two vblanks and the
+	// chip redraws it from the sprite RAM, which is. The OKI is not restored
+	// either -- a sample that was mid-playback simply stops.
+	input             ss_freeze,
+	input             ss_resume,
+	input             ss_active,
+	output            ss_frozen,
+	output            ss_parked,
+	input      [19:0] ss_addr,
+	output reg [15:0] ss_rdata,
+	input             ss_wr,
+	input      [15:0] ss_wdata,
+	input             ss_replay,
+	output            ss_replay_done,
+
 	// debug / measurement
 	output     [23:0] dbg_m68k_pc_addr,
 	output     [31:0] dbg_ym_writes,
@@ -192,6 +217,35 @@ module sandscrp_core #(
 	wire sel_latchst = (byte_addr[23:16] == 8'hE4);
 	wire sel_wdog    = (byte_addr[23:16] == 8'hEC);
 
+	// ---- savestate bus decode
+	wire ss_sel_mainram = (ss_addr[19:15] == 5'd0);
+	wire ss_sel_v2vram  = (ss_addr[19:13] == 7'h04);
+	wire ss_sel_pal     = (ss_addr[19:11] == 9'h014);
+	wire ss_sel_spr     = (ss_addr[19:12] == 8'h0B);
+	wire ss_sel_z80ram  = (ss_addr[19:13] == 7'h06);
+	wire ss_sel_fm      = (ss_addr[19:8]  == 12'h0E0);
+	wire ss_sel_misc    = (ss_addr[19:7]  == 13'h1C2);
+	wire ss_w      = ss_active & ss_wr;
+	wire ss_misc_w = ss_w & ss_sel_misc;
+	wire [6:0] ss_mi = ss_addr[6:0];
+	wire m68k_parked, z80_parked;
+	wire [15:0] ss_m68k_rdata, ss_z80_rdata, ss_calc1_rdata;
+	assign ss_frozen = m68k_parked & z80_parked;
+	assign ss_parked = m68k_parked | z80_parked;
+
+	// 68000 park: the monitor overlay needs an address that is unmapped on
+	// this board. 0x080000-0x0FFFFF is the gap above the program ROM.
+	wire [2:0]  m68k_ipl_park;
+	wire        m68k_sel_mon;
+	wire [15:0] m68k_mon_data;
+	ss_m68k_park #(.MON_BASE(15'h0780)) m68k_park (   // 0x0F0000
+		.clk(clk_sys), .reset(reset), .phi(enPhi2),
+		.park_req(ss_freeze), .parked(m68k_parked), .resume(ss_resume),
+		.eab(eab), .ASn(ASn), .eRWn(eRWn), .FC0(FC0), .FC1(FC1), .FC2(FC2), .oEdb(oEdb),
+		.ipl_park(m68k_ipl_park), .sel_mon(m68k_sel_mon), .mon_data(m68k_mon_data),
+		.ss_sel(ss_addr[1:0]), .ss_wr(ss_misc_w & (ss_mi[6:2] == 5'b00111)), .ss_wdata(ss_wdata), .ss_rdata(ss_m68k_rdata)   // words 28-31
+	);
+
 	// ---- program ROM
 	wire [15:0] rom_dout;
 	wire        rom_ready;
@@ -225,15 +279,17 @@ module sandscrp_core #(
 	endgenerate
 
 	// ---- work RAM, 32768 words as two byte lanes (one M10K set, registered read)
-	wire [14:0] ram_a = eab[15:1];
+	wire [14:0] ram_a = ss_active ? ss_addr[14:0] : eab[15:1];
+	wire        ss_ram_w = ss_w & ss_sel_mainram;
 	reg [7:0] ram_hi [0:32767];
 	reg [7:0] ram_lo [0:32767];
 	reg [7:0] ram_qh, ram_ql;
-	wire ram_we_hi = sel_ram & cpu_write & uds;
-	wire ram_we_lo = sel_ram & cpu_write & lds;
+	wire ram_we_hi = ss_ram_w | (sel_ram & cpu_write & uds);
+	wire ram_we_lo = ss_ram_w | (sel_ram & cpu_write & lds);
+	wire [15:0] ram_wdata = ss_active ? ss_wdata : oEdb;
 	always @(posedge clk_sys) begin
-		if (ram_we_hi) begin ram_hi[ram_a] <= oEdb[15:8]; ram_qh <= oEdb[15:8]; end else ram_qh <= ram_hi[ram_a];
-		if (ram_we_lo) begin ram_lo[ram_a] <= oEdb[7:0];  ram_ql <= oEdb[7:0];  end else ram_ql <= ram_lo[ram_a];
+		if (ram_we_hi) begin ram_hi[ram_a] <= ram_wdata[15:8]; ram_qh <= ram_wdata[15:8]; end else ram_qh <= ram_hi[ram_a];
+		if (ram_we_lo) begin ram_lo[ram_a] <= ram_wdata[7:0];  ram_ql <= ram_wdata[7:0];  end else ram_ql <= ram_lo[ram_a];
 	end
 	reg [14:0] ram_a_r;
 	always @(posedge clk_sys) ram_a_r <= ram_a;
@@ -244,9 +300,14 @@ module sandscrp_core #(
 	wire [15:0] v2vram_dout, v2reg_dout, pal_dout;
 	wire [7:0]  pandora_dout;
 	wire        pandora_hold;
-	wire [12:0] v2vram_addr = eab[13:1];
-	wire [11:0] pandora_addr = eab[12:1];
-	wire [10:0] pal_addr = eab[11:1];
+	wire [12:0] v2vram_addr  = (ss_active & ss_sel_v2vram) ? ss_addr[12:0] : eab[13:1];
+	wire [11:0] pandora_addr = (ss_active & ss_sel_spr)    ? ss_addr[11:0] : eab[12:1];
+	wire [10:0] pal_addr     = (ss_active & ss_sel_pal)    ? ss_addr[10:0] : eab[11:1];
+	wire [3:0]  v2reg_addr   = (ss_active & ss_sel_misc)   ? ss_mi[3:0]    : eab[4:1];
+	wire        ss_v2vram_w = ss_w & ss_sel_v2vram;
+	wire        ss_pal_w    = ss_w & ss_sel_pal;
+	wire        ss_spr_w    = ss_w & ss_sel_spr;
+	wire        ss_v2reg_w  = ss_misc_w & (ss_mi[6:4] == 3'b000);   // words 0-15
 	reg [12:0] v2vram_a_r; reg [11:0] pandora_a_r; reg [10:0] pal_a_r;
 	always @(posedge clk_sys) begin
 		v2vram_a_r <= v2vram_addr; pandora_a_r <= pandora_addr; pal_a_r <= pal_addr;
@@ -258,14 +319,18 @@ module sandscrp_core #(
 	wire sprite_flip;
 	video_sandscrp #(.HW_ROMS(HW_ROMS), .TILES_FILE(TILES_FILE), .SPRITES_FILE(SPRITES_FILE)) video (
 		.clk(clk_sys), .reset(reset),
-		.view2_vram_addr(v2vram_addr), .view2_reg_addr(eab[4:1]),
-		.pandora_addr(pandora_addr), .pal_addr(pal_addr), .cpu_wdata(oEdb),
-		.view2_vram_we_hi(sel_v2vram & cpu_write & uds), .view2_vram_we_lo(sel_v2vram & cpu_write & lds),
-		.view2_reg_we_hi(sel_v2reg & cpu_write & uds),   .view2_reg_we_lo(sel_v2reg & cpu_write & lds),
+		.view2_vram_addr(v2vram_addr), .view2_reg_addr(v2reg_addr),
+		.pandora_addr(pandora_addr), .pal_addr(pal_addr),
+		.cpu_wdata(ss_active ? ss_wdata : oEdb),
+		.view2_vram_we_hi(ss_v2vram_w | (sel_v2vram & cpu_write & uds)),
+		.view2_vram_we_lo(ss_v2vram_w | (sel_v2vram & cpu_write & lds)),
+		.view2_reg_we_hi(ss_v2reg_w | (sel_v2reg & cpu_write & uds)),
+		.view2_reg_we_lo(ss_v2reg_w | (sel_v2reg & cpu_write & lds)),
 		// spriteram_lsb_w: the byte goes in whichever lane the CPU drives, LDS last and so winning
-		.pandora_we(sel_pandora & cpu_write & (uds | lds)),
-		.pandora_wdata(lds ? oEdb[7:0] : oEdb[15:8]),
-		.pal_we_hi(sel_pal & cpu_write & uds), .pal_we_lo(sel_pal & cpu_write & lds),
+		.pandora_we(ss_spr_w | (sel_pandora & cpu_write & (uds | lds))),
+		.pandora_wdata(ss_active ? ss_wdata[7:0] : (lds ? oEdb[7:0] : oEdb[15:8])),
+		.pal_we_hi(ss_pal_w | (sel_pal & cpu_write & uds)),
+		.pal_we_lo(ss_pal_w | (sel_pal & cpu_write & lds)),
 		.view2_vram_rdata(v2vram_dout), .view2_reg_rdata(v2reg_dout),
 		.pandora_rdata(pandora_dout), .pandora_hold(pandora_hold), .pal_rdata(pal_dout),
 		.line_start(line_start), .render_y(render_y), .eof(vbl_start), .vis_start(vis_start),
@@ -286,7 +351,8 @@ module sandscrp_core #(
 	kaneko_hit calc1 (
 		.clk(clk_sys), .reset(reset), .addr(eab[4:1]), .din(oEdb),
 		.we_hi(sel_calc1 & cpu_write & uds), .we_lo(sel_calc1 & cpu_write & lds),
-		.rd(sel_calc1 & cpu_read), .dout(calc1_dout), .watchdog_strobe(calc1_wdog)
+		.rd(sel_calc1 & cpu_read), .dout(calc1_dout), .watchdog_strobe(calc1_wdog),
+		.ss_sel(ss_mi[3:0]), .ss_wr(ss_misc_w & (ss_mi[6:4] == 3'b001)), .ss_wdata(ss_wdata), .ss_rdata(ss_calc1_rdata)   // words 16-27
 	);
 
 	// ---- interrupts: an INPUT_MERGER_ANY_HIGH of three sources on IPL1
@@ -294,7 +360,12 @@ module sandscrp_core #(
 	wire irq_ack_w = sel_irqack & cpu_write & lds;
 	always @(posedge clk_sys) begin
 		if (reset) begin vblank_irq <= 1'b0; sprite_irq <= 1'b0; unknown_irq <= 1'b0; end
-		else begin
+		else if (ss_misc_w & (ss_mi == 7'd35)) begin
+			vblank_irq <= ss_wdata[3]; sprite_irq <= ss_wdata[2]; unknown_irq <= ss_wdata[1];
+		end else if (ss_freeze) begin
+			// hold the flags while the CPUs are parked: the raster keeps running
+			vblank_irq <= vblank_irq; sprite_irq <= sprite_irq; unknown_irq <= unknown_irq;
+		end else begin
 			// the vblank interrupt and the sprite interrupt are the same instant:
 			// set_vblank_int fires at vblank start, screen_vblank's rising edge
 			// sets SPRITE_IRQ and runs pandora->eof() alongside it
@@ -311,11 +382,15 @@ module sandscrp_core #(
 	// DIP is on (0x1b/0x33/0x3b instead of 0x1a/0x32/0x3a -- measured), and
 	// the chip has the mechanism. See docs/known-issues.md SS-6.
 	reg spr_flip_r;
-	always @(posedge clk_sys) if (reset) spr_flip_r <= 1'b0; else if (irq_ack_w) spr_flip_r <= oEdb[0];
+	always @(posedge clk_sys) begin
+		if (reset) spr_flip_r <= 1'b0;
+		else if (ss_misc_w & (ss_mi == 7'd35)) spr_flip_r <= ss_wdata[0];
+		else if (irq_ack_w) spr_flip_r <= oEdb[0];
+	end
 	assign sprite_flip = spr_flip_r;
 
 	wire irq_any = vblank_irq | sprite_irq | unknown_irq;
-	wire [2:0] ipl = irq_any ? 3'd1 : 3'd0;
+	wire [2:0] ipl = m68k_ipl_park | (irq_any ? 3'd1 : 3'd0);
 
 	// ---- sound latches
 	reg [7:0] latch0, latch1;      // 0: 68000 -> Z80, 1: Z80 -> 68000
@@ -331,7 +406,11 @@ module sandscrp_core #(
 	reg  l1_r_68k_d, l0_r_z80_d;
 	always @(posedge clk_sys) begin
 		if (reset) begin latch0 <= 8'd0; latch1 <= 8'd0; latch_full <= 2'd0; end
-		else begin
+		else if (ss_misc_w & (ss_mi == 7'd34)) begin
+			latch0 <= ss_wdata[15:8]; latch1 <= ss_wdata[7:0];
+		end else if (ss_misc_w & (ss_mi == 7'd35)) begin
+			latch_full <= ss_wdata[15:14];
+		end else begin
 			if (l0_w_68k) begin latch0 <= oEdb[7:0]; latch_full[0] <= 1'b1; end
 			if (l1_w_z80) begin latch1 <= z80_do;    latch_full[1] <= 1'b1; end
 			if (l1_r_68k & ~l1_r_68k_d) latch_full[1] <= 1'b0;
@@ -353,7 +432,7 @@ module sandscrp_core #(
 		wdog_reset <= 1'b0;
 		if (reset) begin wdog_cnt <= 32'd0; wdog_resets <= 32'd0; end
 		else if (wdog_kick) wdog_cnt <= 32'd0;
-		else if (!pause) begin
+		else if (!pause & !ss_freeze) begin
 			if (wdog_cnt >= WDOG_CYCLES) begin
 				wdog_cnt <= 32'd0; wdog_reset <= 1'b1; wdog_resets <= wdog_resets + 32'd1;
 			end else wdog_cnt <= wdog_cnt + 32'd1;
@@ -364,7 +443,11 @@ module sandscrp_core #(
 
 	// ---- coin counters (no lockout on this board)
 	reg [1:0] coin_ctr;
-	always @(posedge clk_sys) if (reset) coin_ctr <= 2'd0; else if (sel_coin & cpu_write & lds) coin_ctr <= oEdb[1:0];
+	always @(posedge clk_sys) begin
+		if (reset) coin_ctr <= 2'd0;
+		else if (ss_misc_w & (ss_mi == 7'd35)) coin_ctr <= ss_wdata[9:8];
+		else if (sel_coin & cpu_write & lds) coin_ctr <= oEdb[1:0];
+	end
 
 	// ---- inputs: active low, unused bits and the whole high byte read as ones
 	reg [15:0] in_word;
@@ -377,7 +460,8 @@ module sandscrp_core #(
 
 	// ---- read mux. Unmapped reads give 0x0000 (MAME's unmap value here).
 	always @(*) begin
-		if      (sel_rom)      iEdb = rom_dout;
+		if      (m68k_sel_mon) iEdb = m68k_mon_data;   // savestate monitor overlay / vector 31
+		else if (sel_rom)      iEdb = rom_dout;
 		else if (sel_ram)      iEdb = ram_dout;
 		else if (sel_v2vram)   iEdb = v2vram_dout;
 		else if (sel_v2reg)    iEdb = v2reg_dout;
@@ -408,6 +492,33 @@ module sandscrp_core #(
 		.IPL0n(~ipl[0]), .IPL1n(~ipl[1]), .IPL2n(~ipl[2]),
 		.iEdb(iEdb), .oEdb(oEdb), .eab(eab)
 	);
+	// ---- savestate register words (0x0E100 + n) and the image read mux
+	reg [15:0] ss_misc_rd;
+	always @(*) begin
+		case (ss_mi[6:4])
+			3'b000:  ss_misc_rd = v2reg_dout;        // 0-15  VIEW2 registers
+			3'b001:  ss_misc_rd = ss_calc1_rdata;    // 16-27 CALC1 (+ its random generator)
+			default: case (ss_mi)
+				7'd28, 7'd29, 7'd30, 7'd31: ss_misc_rd = ss_m68k_rdata;   // 68000 SSP/USP
+				7'd32, 7'd33:               ss_misc_rd = ss_z80_rdata;    // Z80 SP and interrupt mode
+				7'd34: ss_misc_rd = {latch0, latch1};
+				7'd35: ss_misc_rd = {latch_full, 1'b0, z80_bank, coin_ctr,
+				                     4'd0, vblank_irq, sprite_irq, unknown_irq, spr_flip_r};
+				default: ss_misc_rd = 16'd0;
+			endcase
+		endcase
+	end
+	always @(*) begin
+		if      (ss_sel_mainram) ss_rdata = ram_dout;
+		else if (ss_sel_v2vram)  ss_rdata = v2vram_dout;
+		else if (ss_sel_pal)     ss_rdata = pal_dout;
+		else if (ss_sel_spr)     ss_rdata = {8'd0, pandora_dout};
+		else if (ss_sel_z80ram)  ss_rdata = {8'd0, z80_ram_q};
+		else if (ss_sel_fm)      ss_rdata = fm_sh_q;
+		else if (ss_sel_misc)    ss_rdata = ss_misc_rd;
+		else                     ss_rdata = 16'd0;
+	end
+
 	assign dbg_m68k_pc_addr = byte_addr;
 
 	// ---- measurement probes (simulation only in practice; a handful of counters)
@@ -436,7 +547,9 @@ module sandscrp_core #(
 	wire       z80_m1_n, z80_mreq_n, z80_iorq_n, z80_rd_n, z80_wr_n, z80_rfsh_n, z80_halt_n, z80_busak_n;
 	// NMI while latch 0 holds data the Z80 has not read (generic_latch_8's
 	// data_pending_callback). The sound driver's every command arrives this way.
-	wire z80_nmi_n = ~latch_full[0];
+	wire z80_nmi_n = ~latch_full[0] & ~z80_nmi_park;
+	wire z80_nmi_park, z80_sel_mon;
+	wire [7:0] z80_mon_data;
 	wire ym_irq_n;
 	T80s z80_cpu (
 		.RESET_n(~sys_reset), .CLK(clk_sys), .CEN(z80_cen & ~pause), .WAIT_n(z80_wait_n),
@@ -445,14 +558,31 @@ module sandscrp_core #(
 		.RD_n(z80_rd_n), .WR_n(z80_wr_n), .RFSH_n(z80_rfsh_n), .HALT_n(z80_halt_n),
 		.BUSAK_n(z80_busak_n), .A(z80_a), .DO(z80_do)
 	);
+	// The sound driver takes every command through NMI and its own handler
+	// lives at 0x0066, which is also where the park monitor is served from --
+	// the overlay only starts at the NMI entry FETCH, so the two coexist. On
+	// this board that path is exercised constantly rather than rarely.
+	ss_z80_park z80_park (
+		.clk(clk_sys), .cen(z80_cen), .reset_n(~sys_reset),
+		.park_req(ss_freeze), .parked(z80_parked), .resume(ss_resume),
+		.a(z80_a), .m1_n(z80_m1_n), .mreq_n(z80_mreq_n), .iorq_n(z80_iorq_n),
+		.rd_n(z80_rd_n), .wr_n(z80_wr_n), .wait_n(z80_wait_n),
+		.dout(z80_do), .din_bus(z80_rdata),
+		.nmi_park(z80_nmi_park), .sel_mon(z80_sel_mon), .mon_data(z80_mon_data),
+		.ss_sel(ss_mi[0]), .ss_wr(ss_misc_w & (ss_mi[6:1] == 6'b010000)), .ss_wdata(ss_wdata), .ss_rdata(ss_z80_rdata)   // words 32-33
+	);
+
 	wire z80_mem_re = ~z80_mreq_n & ~z80_rd_n;
 	wire z80_mem_we = ~z80_mreq_n & ~z80_wr_n;
 	assign z80_io_re = ~z80_iorq_n & ~z80_rd_n;
 	assign z80_io_we = ~z80_iorq_n & ~z80_wr_n;
 
 	reg [2:0] z80_bank;
-	always @(posedge clk_sys) if (sys_reset) z80_bank <= 3'd0;
-	                          else if (z80_io_we & (z80_a[7:0] == 8'h00)) z80_bank <= z80_do[2:0];
+	always @(posedge clk_sys) begin
+		if (sys_reset) z80_bank <= 3'd0;
+		else if (ss_misc_w & (ss_mi == 7'd35)) z80_bank <= ss_wdata[12:10];
+		else if (z80_io_we & (z80_a[7:0] == 8'h00)) z80_bank <= z80_do[2:0];
+	end
 
 	wire sel_z80_rom  = z80_mem_re & (z80_a < 16'h8000);
 	wire sel_z80_bank = z80_mem_re & (z80_a >= 16'h8000) & (z80_a < 16'hC000);
@@ -476,9 +606,12 @@ module sandscrp_core #(
 
 	reg [7:0] z80_ram [0:8191];
 	reg [7:0] z80_ram_q;
+	wire [12:0] zr_a = ss_active ? ss_addr[12:0] : z80_a[12:0];
+	wire        ss_zr_w = ss_w & ss_sel_z80ram;
 	always @(posedge clk_sys) begin
-		if (sel_z80_ram & z80_mem_we) z80_ram[z80_a[12:0]] <= z80_do;
-		z80_ram_q <= z80_ram[z80_a[12:0]];
+		if (ss_zr_w)                       z80_ram[zr_a] <= ss_wdata[7:0];
+		else if (sel_z80_ram & z80_mem_we) z80_ram[zr_a] <= z80_do;
+		z80_ram_q <= z80_ram[zr_a];
 	end
 
 	// YM2203: jt03 has no read strobe, so a status read must see the live port
@@ -498,13 +631,91 @@ module sandscrp_core #(
 	end
 	wire ym_wr_n = ~(ym_wr_hold != 6'd0);
 	wire ym_addr_sel = (ym_wr_hold != 6'd0) ? ym_addr_latch : ym_a0;
+
+	// ------------------------------------------------------------------
+	// YM2203 register shadow and its replay after a load. The chip's own
+	// registers cannot be read back, so every write is recorded here (two
+	// registers per word) and played into the chip again on a restore.
+	// Two registers are NOT replayed: 0x28 (key on/off) is replayed as a
+	// key-OFF sweep of all three channels instead, because re-keying would
+	// restart every note that happened to be sounding; and 0x2C-0x2F are
+	// skipped outright.
+	// ------------------------------------------------------------------
+	reg  [7:0] fm_sh_e [0:127];
+	reg  [7:0] fm_sh_o [0:127];
+	reg  [7:0] ym_sh_addr = 8'h00;
+	reg [15:0] fm_sh_q;
+	reg  [7:0] rep_addr = 8'd0;
+	wire [6:0] fm_raddr = ss_active ? ss_addr[6:0] : rep_addr[6:0];
+	reg        ym_we_prev2;
+	wire       ym_wr_edge = ym_sel & ~ym_we_prev2;
+	wire       rep_on = ss_replay;
+	reg        rep_ym_we = 1'b0, rep_a0 = 1'b0;
+	reg  [7:0] rep_data;
+	always @(posedge clk_sys) begin
+		ym_we_prev2 <= ym_sel;
+		if (ss_w & ss_sel_fm) begin
+			fm_sh_e[ss_addr[6:0]] <= ss_wdata[7:0];
+			fm_sh_o[ss_addr[6:0]] <= ss_wdata[15:8];
+		end else if (~rep_on & ym_wr_edge) begin
+			if (~ym_a0) ym_sh_addr <= z80_do;
+			else if (ym_sh_addr[0]) fm_sh_o[ym_sh_addr[7:1]] <= z80_do;
+			else                    fm_sh_e[ym_sh_addr[7:1]] <= z80_do;
+		end
+		fm_sh_q <= {fm_sh_o[fm_raddr], fm_sh_e[fm_raddr]};
+	end
+
+	localparam [3:0] R_IDLE = 4'd0, R_FETCH = 4'd1, R_FETCH2 = 4'd2, R_ADDR = 4'd3, R_W1 = 4'd4,
+	                 R_DATA = 4'd5, R_W2 = 4'd6, R_NEXT = 4'd7, R_DONE = 4'd8;
+	reg  [3:0] rep_st = R_IDLE;
+	reg        rep_odd = 1'b0;
+	reg [15:0] rep_word;
+	reg  [8:0] rep_wait;
+	reg        rep_done_r = 1'b0;
+	wire [6:0] rep_idx   = rep_addr[6:0];
+	wire       rep_sweep = rep_addr[7];                      // after the 128 words: 0x28 <- 0/1/2
+	wire [7:0] rep_reg   = rep_sweep ? 8'h28 : {rep_idx, rep_odd};
+	wire [7:0] rep_val   = rep_sweep ? {5'd0, rep_idx[2:0]} : (rep_odd ? rep_word[15:8] : rep_word[7:0]);
+	wire       rep_skip  = rep_sweep ? rep_odd : ((rep_reg == 8'h28) | (rep_reg[7:2] == 6'b001011));
+	wire       rep_last  = rep_sweep & (rep_idx == 7'd3);
+	assign ss_replay_done = rep_done_r;
+	always @(posedge clk_sys) begin
+		rep_ym_we <= 1'b0;
+		case (rep_st)
+			R_IDLE: begin
+				rep_done_r <= 1'b0;
+				if (ss_replay) begin rep_addr <= 8'd0; rep_odd <= 1'b0; rep_st <= R_FETCH; end
+			end
+			R_FETCH:  rep_st <= R_FETCH2;
+			R_FETCH2: begin rep_word <= fm_sh_q; rep_st <= R_ADDR; end
+			R_ADDR: begin
+				if (rep_skip | rep_last) rep_st <= R_NEXT;
+				else begin rep_data <= rep_reg; rep_a0 <= 1'b0; rep_ym_we <= 1'b1; rep_wait <= 9'd0; rep_st <= R_W1; end
+			end
+			R_W1: begin rep_wait <= rep_wait + 1'b1; if (rep_wait == 9'd255) rep_st <= R_DATA; end
+			R_DATA: begin rep_data <= rep_val; rep_a0 <= 1'b1; rep_ym_we <= 1'b1; rep_wait <= 9'd0; rep_st <= R_W2; end
+			R_W2: begin rep_wait <= rep_wait + 1'b1; if (rep_wait == 9'd255) rep_st <= R_NEXT; end
+			R_NEXT: begin
+				if (rep_last) rep_st <= R_DONE;
+				else if (~rep_odd) begin rep_odd <= 1'b1; rep_st <= R_ADDR; end
+				else begin rep_odd <= 1'b0; rep_addr <= rep_addr + 1'b1; rep_st <= R_FETCH; end
+			end
+			R_DONE: begin rep_done_r <= 1'b1; if (~ss_replay) rep_st <= R_IDLE; end
+			default: rep_st <= R_IDLE;
+		endcase
+		if (reset) begin rep_st <= R_IDLE; rep_done_r <= 1'b0; end
+	end
 	wire [7:0] ym_dout;
 	wire signed [15:0] ym_snd;
+	// during a replay the shadow drives the chip instead of the Z80
+	wire       ym_wr_n_eff   = rep_on ? ~rep_ym_we : ym_wr_n;
+	wire       ym_addr_eff   = rep_on ? rep_a0     : ym_addr_sel;
+	wire [7:0] ym_din_eff    = rep_on ? rep_data   : ym_din_latch;
 	// DSW1 on port A, DSW2 on port B: on this board the Z80 is the only thing
 	// that can read the dip switches, and it reads them through the sound chip.
 	jt03 ym (
 		.rst(sys_reset), .clk(clk_sys), .cen(ym_cen),
-		.din(ym_din_latch), .addr(ym_addr_sel), .cs_n(1'b0), .wr_n(ym_wr_n),
+		.din(ym_din_eff), .addr(ym_addr_eff), .cs_n(1'b0), .wr_n(ym_wr_n_eff),
 		.dout(ym_dout), .irq_n(ym_irq_n),
 		.IOA_in(dsw1_i), .IOB_in(dsw2_i), .IOA_out(), .IOB_out(), .IOA_oe(), .IOB_oe(),
 		.psg_A(), .psg_B(), .psg_C(), .fm_snd(), .psg_snd(), .snd(ym_snd), .snd_sample(),
@@ -553,7 +764,7 @@ module sandscrp_core #(
 		else if (z80_io_re & (z80_a[7:0] == 8'h08))    z80_rdata = {latch_full[1], latch_full[0], 6'd0};
 		else                                           z80_rdata = 8'hFF;
 	end
-	assign z80_di_w = z80_rdata;
+	assign z80_di_w = z80_sel_mon ? z80_mon_data : z80_rdata;   // savestate monitor overlay
 
 	// ---- mix. MAME routes both chips at 0.5; its OKI stream is full 16-bit
 	// scale, i.e. jt6295's 14-bit `sound` x4, so the OKI term is shifted up two

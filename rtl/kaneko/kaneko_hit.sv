@@ -39,7 +39,15 @@ module kaneko_hit (
 	input             we_lo,         // LDS
 	input             rd,            // a read is happening this cycle (for the watchdog strobe)
 	output reg [15:0] dout,          // registered, valid the clock after addr
-	output            watchdog_strobe
+	output            watchdog_strobe,
+
+	// Savestate port: the raw register file, which the normal read map does
+	// not expose (a read of register 2 gives the collision word, not x1p).
+	// 0-9 the ten registers in write order, 10-11 the random generator.
+	input      [3:0]  ss_sel,
+	input             ss_wr,
+	input      [15:0] ss_wdata,
+	output reg [15:0] ss_rdata
 );
 	reg [15:0] x1p, x1s, y1p, y1s, x2p, x2s, y2p, y2s, mult_a, mult_b;
 	reg [31:0] lfsr;
@@ -60,13 +68,34 @@ module kaneko_hit (
 
 	assign watchdog_strobe = rd & (addr == 4'd0);
 
+	always @(*) begin
+		case (ss_sel)
+			4'd0: ss_rdata = x1p;  4'd1: ss_rdata = x1s;
+			4'd2: ss_rdata = y1p;  4'd3: ss_rdata = y1s;
+			4'd4: ss_rdata = x2p;  4'd5: ss_rdata = x2s;
+			4'd6: ss_rdata = y2p;  4'd7: ss_rdata = y2s;
+			4'd8: ss_rdata = mult_a; 4'd9: ss_rdata = mult_b;
+			4'd10: ss_rdata = lfsr[31:16];
+			default: ss_rdata = lfsr[15:0];
+		endcase
+	end
+
 	always @(posedge clk) begin
 		if (reset) begin
 			{x1p, x1s, y1p, y1s, x2p, x2s, y2p, y2s, mult_a, mult_b} <= 160'd0;
 			lfsr <= 32'h1234_5678;
 		end else begin
 			lfsr <= {lfsr[30:0], lfsr[31] ^ lfsr[21] ^ lfsr[1] ^ lfsr[0]};
-			if (we) case (addr)
+			if (ss_wr) case (ss_sel)
+				4'd0: x1p <= ss_wdata;  4'd1: x1s <= ss_wdata;
+				4'd2: y1p <= ss_wdata;  4'd3: y1s <= ss_wdata;
+				4'd4: x2p <= ss_wdata;  4'd5: x2s <= ss_wdata;
+				4'd6: y2p <= ss_wdata;  4'd7: y2s <= ss_wdata;
+				4'd8: mult_a <= ss_wdata; 4'd9: mult_b <= ss_wdata;
+				4'd10: lfsr[31:16] <= ss_wdata;
+				default: lfsr[15:0] <= ss_wdata;
+			endcase
+			else if (we) case (addr)
 				4'd0: x1p <= wdata;  4'd1: x1s <= wdata;
 				4'd2: y1p <= wdata;  4'd3: y1s <= wdata;
 				4'd4: x2p <= wdata;  4'd5: x2s <= wdata;
