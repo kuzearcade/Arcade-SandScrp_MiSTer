@@ -27,7 +27,14 @@ scores including the patch-the-`.nvm` proof, and savestate save, with savestate
 load working but not on every attempt. Orientation cannot be observed with the
 tools to hand, cheats are inconclusive and autofire is untested; audio against
 MAME and a frame-level comparison with the reference simulation have not been
-run on hardware either. See `docs/PLAN.md` for the plan,
+run on hardware either.
+
+The core is published through
+[kuzecores](https://github.com/kuzearcade/kuzecores), a custom database for the
+MiSTer *downloader*, so it arrives through `update_all` alongside any other
+core, with all three `.mra` correctly tagged.
+
+See `docs/PLAN.md` for the plan,
 `docs/hw-bringup.md` for milestone status, the build numbers and the bring-up
 log, and `docs/known-issues.md` for what is measured, what is assumed and what
 is still open.

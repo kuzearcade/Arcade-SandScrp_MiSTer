@@ -19,24 +19,23 @@ the evidence in `docs/known-issues.md`.
 | **M1 Video against MAME state** | done — VIEW2, PANDORA and the compositor are identical to an independent Python model of MAME on **61 of 61** frames, 31 of them additionally pixel-exact against MAME itself |
 | **M2 Full reference sim** | done — the whole board run from reset is **pixel-exact against MAME**, 43 of 44 frames matching once the two independent timelines are allowed to drift |
 | **M3 Hardware-path sim** | done — golden-byte audit **3,801,088 bytes, 0 wrong, 0 timeouts**; frames pixel-exact against MAME through the SDRAM path; sprite pass 106,797 clocks of a frame's 804,864 with 0 late swaps; savestate round trip verified at the state level |
-| **M4 Quartus and board** | **boots and plays on a DE10-Nano.** The full Quartus flow runs clean (18,806 ALMs of 41,910, 342 of 553 M10K, timing closed first try), and the third bitstream reaches the title screen, the attract cycle and gameplay on coin/start/fire. Took two black screens to get there — SS-15. Most board gates below are still unchecked |
-| **M5 Feature parity and release** | **mostly verified on the board.** DIP switches, Flip screen, CRT Adjust, Pause, High scores and savestate *save* all pass; savestate *load* works but not on every attempt. Orientation cannot be observed with the tools here, cheats are inconclusive, autofire untested. The database and `.mra` distribution are published |
+| **M4 Quartus and board** | **done bar two gates.** Builds clean (18,806 ALMs of 41,910, 342 of 553 M10K, timing closed first try), boots and plays on a DE10-Nano, and all three sets are swept on hardware. Took two black screens to get there — SS-15. Audio against MAME and a frame-level comparison with the reference sim are the two board gates still open |
+| **M5 Feature parity and release** | **mostly verified, and published.** On the board: DIP switches, Flip screen (an exact 180-degree turn), CRT Adjust, Pause, High scores including the patch-the-`.nvm` proof, and savestate save all pass; savestate load works but not on every attempt. Orientation cannot be observed with the tools here, cheats are inconclusive, autofire untested. The core ships through the kuzecores downloader database with all three `.mra` correctly tagged |
 
 ### What M4 still owes its gates
 
-Everything up to the bitstream is done and measured; nothing past it is. The
-plan's M4 gates, and which of them a bitstream alone cannot answer:
+The plan's M4 gates, and where each stands after a day on the board:
 
 | gate | state |
 |---|---|
 | Timing met on every clock, worst path identified | **met** — and the worst path is the framework's `pll_hdmi`, exactly where the plan predicted |
 | RAM inference: every array a real M10K, no duplicate copies | **met**, after the fix in SS-14 |
 | Boots to attract on the first `.mra` | **met** — title, attract cycle and high-score table, after SS-15 |
-| Coin, start and play on keyboard | **met** — coin, coin, start, fire, and the ship moves and shoots |
+| Coin, start and play on keyboard | **met** — three coins read CREDITS 3 on the title screen, and the ship moves and shoots |
 | Native screenshots of static scenes byte-identical to the reference sim | not run |
 | A demo frame with sprites pixel-identical to the reference sim (the byte-order check) | not run |
 | Audio correlation vs MAME over 60 s | not run |
-| Coin, start and play on a gamepad | not run |
+| Coin, start and play on a gamepad | not run — keyboard only so far |
 | All three `.mra` swept | **met** — all three boot, run the attract and play, and each differs from the others on at least one frame |
 
 M5's gates are now mostly met on the board — see the OSD feature section below
@@ -304,12 +303,12 @@ screen, so on its own it shows a different animation phase; it is the
 combination with the part names and the ROM contents that settles which program
 each set is running.
 
-### Not yet checked on the board
+### What that first run did not cover
 
-Orientation and Flip screen, CRT Adjust, the DIP menu, autofire, pause, high
-scores, cheats, savestates, audio against MAME, the other two `.mra`, and a
-frame-level comparison against the reference simulation. Booting and playing is
-the first gate, not the last.
+Booting and playing is the first gate, not the last. The OSD feature set was
+tested later the same day and has its own section below; audio against MAME and
+a frame-level comparison against the reference simulation are still not done on
+hardware.
 
 ## 2026-09-20 — The OSD feature set on the board
 
@@ -398,24 +397,65 @@ Separately, and not fixed because it is not a bug in the core: toggling Service
 Mode mid-game does nothing, since the game reads that switch at boot. The
 keyboard toggle only bites across a reset.
 
-**The same collision exists in `Arcade-NMK16_MiSTer`**, which shares this
-`savestate_ui.sv` and also binds F2 to Service Mode. It has not been changed
-there.
+**The same collision existed in `Arcade-NMK16_MiSTer`**, which shares this
+`savestate_ui.sv` and also binds F2 to Service Mode. Fixed there too (NMK-34),
+all four of its cores rebuilt and the change verified on the board with
+NMK16_Macross2 running Thunder Dragon 2: Alt+F2 writes nothing, Alt+F5 writes
+slot 2.
 
-### The bitstream is tracked
+## 2026-09-20 — Distribution: an XML defect, and the core in a downloader database
 
-`releases/Arcade-SandScrp_20260920.rbf` is this build, md5
-`05cabd5e02595f5560a14d9c9843297d`, the same bytes as
-`output_files_sandscrp/SandScrp.rbf`. The date in the name is the one
-`build_id.v` carries and the OSD shows, so a bitstream running on a board can
-be matched back to a build. Copy the current `.rbf` there after every build, as
-the NMK16 project does.
+The core is now published through
+[kuzecores](https://github.com/kuzearcade/kuzecores), a custom database for the
+MiSTer *downloader*, so it arrives through `update_all` like any other core and
+appears in release trackers that read `db.json.zip`. All three `.mra` are in it,
+with the bitstream listed externally and pinned to a commit in this repository.
 
-It is tracked because it is the thing a person with a DE10-Nano needs in order
-to answer any of the open gates above, and asking them to install Quartus first
-would be the only thing standing between this core and its first real
-measurement. It is **not** a release: it builds and meets timing and has never
-been powered on.
+Adding it turned up a defect in this project's own `.mra`, and in ten of the
+NMK16 ones, worth recording because it is invisible from the board.
 
-**Still not run on hardware.** What the board has to settle first is unchanged:
-the raster timing (SS-1) and the sprite flip (SS-6).
+**All three of this core's `.mra` were not well-formed XML.** Each had a `--`
+inside the header comment, which the XML spec forbids ("Sand Scorpion -- FACE
+1992", and again in the `<switches>` note). MiSTer's own `.mra` reader is
+lenient, so the games always ran correctly — but the database builder reads each
+file with a strict parser to learn which core it needs, and on a parse error it
+silently drops **every tag taken from the file's contents**: the per-core tag,
+the set-name term, and the `alternatives` marker. Ten NMK16 files had already
+shipped that way, tagged only by their path, so filtering the database by core
+did not show them.
+
+Fixed in the generators (`x()` for element text and attribute values, `xc()` for
+comment bodies) as well as in the files, so it cannot recur. The published
+database now carries 100 `.mra` with **zero missing a per-core tag**, and Sand
+Scorpion's own `arcadesandscrp` tag on all three sets.
+
+Two notes for whoever maintains this next:
+
+- **Do not fix a `.mra` by re-running its generator.** Each writes every set
+  flat into `releases/` and emits only its own blocks, so a plain regeneration
+  scatters the `_alternatives/` layout and strips the high-score and cheat
+  blocks that `gen_hiscore_mra.py` and `gen_cheats_mra.py` append afterwards.
+  Tried it, reverted it.
+- **The published `db.json.zip` is aggressively cached.** After a rebuild, the
+  branch URL served the previous file even with cache-busting headers; only the
+  commit-hash URL gave the current one. The size is the quick tell.
+
+## 2026-09-20 — The tracked bitstream
+
+`releases/Arcade-SandScrp_20260920.rbf` is the current build, md5
+`c954c05ee36d9be263e94c37ee8c3873`, the same bytes as `output_files_sandscrp/SandScrp.rbf`.
+The date in the name is the one `build_id.v` carries and the OSD shows, so a
+bitstream running on a board can be traced back to a build. Copy the current
+`.rbf` there after every build, as the NMK16 project does.
+
+It is tracked so that someone with a DE10-Nano can run this core without
+installing Quartus first. It is the build that boots, plays and passes the
+feature tests above — but it is still not a release: audio has never been
+compared against MAME on hardware, and three OSD options remain unverified.
+
+**A trap worth repeating from the NMK16 rebuild:** `build_id.v` is written by
+the `PRE_FLOW_SCRIPT_FILE`, which does **not** run when `quartus_map` is
+invoked directly. A bitstream built that way carries whatever date the file
+already held, so it can be named for today and report a week-old version in the
+OSD. Run `quartus_sh -t sys/build_id.tcl <project> <revision>` first, or build
+through a full flow.
