@@ -373,13 +373,34 @@ Two things made the results trustworthy that are worth keeping:
   `<switches>` byte sets bit 6, and rapid fire is not something a still frame
   settles.
 
-### One bug found
+### One bug found, and fixed
 
-**F2 is claimed twice.** This core's keyboard block uses F2 for the Service Mode
-toggle, and `savestate_ui` uses the same scancode for savestate slot 2. Both act
-on it. Nothing was corrupted in testing, but the two should not share a key —
-and separately, toggling Service Mode mid-game does nothing, because the game
-reads that switch at boot, so the keyboard toggle is only useful before a reset.
+**F2 was claimed twice.** This core's keyboard block uses F2 for the Service
+Mode toggle, MAME's own binding for it, and `savestate_ui` used the same
+scancode for savestate slot 2. Both acted on the press.
+
+Slot 2 moved to **F5** (scancode 0x03), so the slot keys are now **F1, F5, F3,
+F4** for slots 1-4, a plain press to load and Alt+press to save. Moving the
+savestate side rather than the Service Mode side keeps MAME's binding, at the
+cost of a gap in the F1-F4 convention other MiSTer cores follow; moving all
+four clear of F2 would have broken that convention for the three that never
+collided.
+
+Verified on the board with the rebuilt bitstream:
+
+| | |
+|---|---|
+| Alt+F2, the old slot-2 key | no savestate file appears |
+| Alt+F5 | writes `Sand Scorpion_2.ss`, 115,464 bytes |
+| F5 from a cold attract screen | restores the saved game, score 1800 on the HUD |
+
+Separately, and not fixed because it is not a bug in the core: toggling Service
+Mode mid-game does nothing, since the game reads that switch at boot. The
+keyboard toggle only bites across a reset.
+
+**The same collision exists in `Arcade-NMK16_MiSTer`**, which shares this
+`savestate_ui.sv` and also binds F2 to Service Mode. It has not been changed
+there.
 
 ### The bitstream is tracked
 

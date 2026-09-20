@@ -106,8 +106,10 @@ localparam CONF_STR = {
 	"P4,Savestates;",
 	"P4O[41:40],Slot,1,2,3,4;",
 	"P4-;",
-	"P4R[42],Save state (Alt+F1-F4);",
-	"P4R[43],Load state (F1-F4);",
+	// Slot 2 is F5, not F2: F2 is this core's Service Mode toggle and the two
+	// collided (docs/hw-bringup.md, 2026-09-20).
+	"P4R[42],Save state (Alt+F1 F5 F3 F4);",
+	"P4R[43],Load state (F1 F5 F3 F4);",
 	"P2,Cheats;",
 	"P2-;",
 	"h3P2O[32],Infinite Credits,Off,On;",
@@ -124,7 +126,7 @@ localparam CONF_STR = {
 	// only as the plain-shot escape while autofire is on.
 	"J1,Shot,Bomb,Button 3,Start,Coin;",
 	"I,",
-	"Slot=F1-F4|Save=Alt+F1-F4,",
+	"Slot=F1 F5 F3 F4|Save=+Alt,",
 	"Active Slot 1,",
 	"Active Slot 2,",
 	"Active Slot 3,",
