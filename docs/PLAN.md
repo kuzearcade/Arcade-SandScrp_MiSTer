@@ -10,11 +10,19 @@ Flip screen, CRT Adjust, direct-video menu split, Autofire, Pause, High
 scores, Cheats, Savestates, keyboard mapping, `.mra` per set, an
 `autofire_releases/` mirror).
 
-Nothing below has been built. The new repository does not exist yet apart
-from this file. Section 1 is the hardware as MAME describes it, section 2
-the architecture and what is copied from NMK16, section 3 the milestones and
-their gates, section 4 the exhaustive lessons list from NMK16 mapped onto
-this board, section 5 the open questions to settle first.
+Section 1 is the hardware as MAME describes it, section 2 the architecture and
+what is copied from NMK16, section 3 the milestones and their gates, section 4
+the exhaustive lessons list from NMK16 mapped onto this board, section 5 the
+open questions to settle first.
+
+**This file is the plan as written on 2026-09-19 and is kept that way** — it is
+not edited to match what happened, so that the two can be compared. Wording
+like "nothing below has been built" is true of the day it was written and
+nothing else. For where the work actually stands, read
+`docs/hw-bringup.md`; its milestone status summary is the live one, and the
+dated sections under it hold the evidence. As of 2026-09-20, M0 to M3 are done
+and measured, M4 has a top level that builds and meets timing but has never run
+on a board, and M5's features are all instantiated and none verified.
 
 ---
 
@@ -477,6 +485,11 @@ its clock groups from the `foreach_in_collection` pattern over
 Each milestone ends with a stated, measured gate. "Sim passed" is never
 the last word for anything touching the memory path, the park/resume path
 or byte order — those need the board.
+
+> **Status lives elsewhere.** The gates below are the plan's, unedited. Which
+> of them have been met, with the numbers, is the milestone status table in
+> `docs/hw-bringup.md`. That prediction about M4's worst timing path being the
+> framework's `pll_hdmi` turned out to be right, for what it is worth.
 
 **M0 — Foundation (no RTL of our own yet).**
 - Create the repo from the layout in 2.1; `bootstrap.sh` + `deps.lock`

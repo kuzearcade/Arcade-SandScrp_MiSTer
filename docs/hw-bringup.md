@@ -1,15 +1,17 @@
 # Hardware bring-up — Arcade-SandScrp_MiSTer
 
-Dated sections, newest last. Nothing here is a plan; each entry is something
-that was built and measured.
+Two kinds of content. **Milestone status** is a standing summary, rewritten in
+place whenever something moves, so it is always current. Everything after it is
+**dated sections, newest last**, and those are never rewritten. Nothing here is
+a plan; each entry is something that was built and measured.
 
 ---
 
-## 2026-09-20 — Milestone status
+## Milestone status (current as of 2026-09-20)
 
-Where the plan's milestones stand. Everything below is a measurement; the
-method for each is in `docs/sim-harness.md` and the evidence in
-`docs/known-issues.md`.
+Where `docs/PLAN.md` section 3's milestones stand against their own gates.
+Everything here is a measurement; the method is in `docs/sim-harness.md` and
+the evidence in `docs/known-issues.md`.
 
 | | |
 |---|---|
@@ -17,18 +19,42 @@ method for each is in `docs/sim-harness.md` and the evidence in
 | **M1 Video against MAME state** | done — VIEW2, PANDORA and the compositor are identical to an independent Python model of MAME on **61 of 61** frames, 31 of them additionally pixel-exact against MAME itself |
 | **M2 Full reference sim** | done — the whole board run from reset is **pixel-exact against MAME**, 43 of 44 frames matching once the two independent timelines are allowed to drift |
 | **M3 Hardware-path sim** | done — golden-byte audit **3,801,088 bytes, 0 wrong, 0 timeouts**; frames pixel-exact against MAME through the SDRAM path; sprite pass 106,797 clocks of a frame's 804,864 with 0 late swaps; savestate round trip verified at the state level |
-| **M4 Quartus and board** | not started — `quartus_map` probes only (below); no fit, no timing, no bitstream, no hardware |
-| **M5 Feature parity and release** | not started — the OSD, CRT Adjust, autofire, pause, high scores and cheats are inherited but nothing is wired into a top level yet |
+| **M4 Quartus and board** | building — the top level exists and the full flow runs clean: **18,806 ALMs of 41,910 (45 %), 342 of 553 M10K, timing closed first try** at +0.392 ns worst setup, `.rbf` written. **Nothing has run on a board.** |
+| **M5 Feature parity and release** | wired, unverified — the OSD, CRT Adjust, autofire, pause, high scores, cheats and savestates are all instantiated in the top level; none of it has been exercised anywhere but in simulation |
 
-What M4 needs first is the MiSTer top level (`SandScrp.sv`, the `.qip`/`.qsf`
-project and the CONF_STR), which does not exist yet: the core and its SDRAM
-path are complete and verified, but nothing instantiates them alongside
-`sys/`.
+### What M4 still owes its gates
 
-Two things that cannot be settled anywhere but on the board, and should be
-first in the queue when it is available: the raster timing (SS-1, currently a
-parameter defaulted from the closest sibling Kaneko board) and the sprite flip
-(SS-6, where this core deliberately diverges from MAME on measured evidence).
+Everything up to the bitstream is done and measured; nothing past it is. The
+plan's M4 gates, and which of them a bitstream alone cannot answer:
+
+| gate | state |
+|---|---|
+| Timing met on every clock, worst path identified | **met** — and the worst path is the framework's `pll_hdmi`, exactly where the plan predicted |
+| RAM inference: every array a real M10K, no duplicate copies | **met**, after the fix in SS-14 |
+| Boots to attract on the first `.mra` | not run |
+| Native screenshots of static scenes byte-identical to the reference sim | not run |
+| A demo frame with sprites pixel-identical to the reference sim (the byte-order check) | not run |
+| Audio correlation vs MAME over 60 s | not run |
+| Coin, start and play on keyboard and gamepad | not run |
+| All three `.mra` swept | not run |
+
+M5's features are all instantiated and none of them are verified. Their gates
+are board gates almost without exception: paused screenshots for Flip screen,
+both Orientation directions, CRT Adjust frame sizes, the direct-video menu
+split, the high-score patch-the-`.nvm` proof, each cheat slot, and the
+savestate save / reload-core / load sequence that the NMK16 project found could
+only be broken on hardware.
+
+### What the board has to settle first
+
+Two open questions cannot be answered anywhere else, and should lead the queue:
+
+- **SS-1, the raster timing.** Nothing in MAME documents this board's raster.
+  Every number in `video_timing_sandscrp.sv` is a parameter defaulted from the
+  closest sibling Kaneko board, and `video_retime`/`crt_chain` in the top level
+  inherit them. A PCB measurement settles it.
+- **SS-6, the sprite flip.** This core deliberately diverges from MAME here, on
+  measured evidence. The board is the tie-breaker.
 
 ## 2026-09-19 — Synthesis probe of the core (Quartus 17.0 Lite, 5CSEBA6U23I7)
 
@@ -96,3 +122,121 @@ phase accumulators; nothing on this board does, and an exact divider cannot
 drift. The SDRAM controller keeps its own 96 MHz PLL output either way, and
 96/6 = 16 clocks per pixel leaves CRT Adjust's Cabinet mode (which needs at
 least 11) comfortable.
+
+## 2026-09-20 — The MiSTer top level
+
+`SandScrp.sv` now exists: `module emu` with the framework's port include, the
+CONF_STR, `hps_io`, the PLLs, the SDRAM controller, the core, the video chain
+and the OSD features. With it come `files_sandscrp.qip`, `SandScrp.qsf`,
+`SandScrp.qpf`, `SandScrp.sdc` and `SandScrp.srf`. It is adapted from
+NMK16_Macross2.sv, the closest sibling (68000 + Z80 + YM2203 + OKIM6295), and
+inherits its OSD layout, keyboard map, autofire, pause, high-score, cheat,
+savestate and CRT Adjust wiring unchanged.
+
+What is different here, and why:
+
+- **One game, no game select.** The three sets share a machine configuration
+  and byte-identical graphics and sound data, so the `.mra` picks the set by
+  which program ROM it loads and no status bit is spent on it.
+- **The DIP switches never reach the 68000.** On this board the Z80 reads both
+  banks through the YM2203's ports, so the `.mra`'s `<switches>` bytes go to
+  the core's `dsw1_i`/`dsw2_i` and from there to jt03's IOA/IOB. Service Mode
+  is DSW2 bit 7 (MAME's `PORT_SERVICE_DIPLOC "SW2:8"`), not a DSW1 bit, so
+  that is what F2 toggles.
+- **ROT90, not ROT270.** The image has to be turned clockwise to stand
+  upright, which is `screen_rotate`'s `rotate_ccw = 0`. The two Vert entries
+  are therefore the other way round from the NMK16 cores: "Vert 90" is the
+  MAME-correct one and is offered first.
+- **Mono audio.** One channel to both outputs.
+- **The raster is 384 x 262 at 6 MHz**, not 512 x 278 at 8. `video_retime`
+  gained a `VTOTAL_P` parameter for it (the NMK16 boards' 278 was a
+  localparam); the active window, rows 16..239, was already right for both.
+  96 MHz / 6 MHz = 16 video clocks per pixel and 6,144 per line. HSync is
+  placed nominally inside the blanking (front porch 32 px, sync 28, back porch
+  68) and CRT Adjust trims it. All of this rests on SS-1, which is still open.
+
+Analysis & Synthesis is clean: **0 errors**. Getting there found one real bug,
+worth a full entry of its own — see `docs/known-issues.md` SS-14. In short, the
+PANDORA sprite RAM was being built out of 32,768 flip-flops because the CPU
+read sat inside the lane `case`, and the first whole-design synthesis came out
+at 41,709 ALMs of 41,910. Reading all four lanes unconditionally and selecting
+after the register, plus an explicit mirror bank for the snapshot's read port,
+brought it to 19,901.
+
+The only uninferred RAM logic left is in third-party code that the NMK16 cores
+carry too (four small jt6295/jt03 lookup tables, the five hiscore config
+tables) plus `oki_rom_cache`'s 16-line fully associative cache, which is 864
+bits of tag and data and belongs in registers.
+
+### The build
+
+Full flow, Quartus 17.0 Lite, 5CSEBA6U23I7, `SEED 1`: map, fit, assemble and
+timing, **0 errors at every stage, and timing closed on the first attempt** —
+no seed retries, which the NMK16 project needed on two of its four cores.
+
+| | |
+|---|---|
+| Logic utilisation (ALMs) | 18,806 of 41,910 (45 %) |
+| Dedicated logic registers | 26,338 |
+| M10K blocks | 342 of 553 (62 %) |
+| Block memory bits | 2,517,975 of 5,662,720 (44 %) |
+| DSP blocks | 45 of 112 (40 %) |
+| PLLs | 3 of 6 |
+| I/O pins | 145 of 314 |
+| `.rbf` | 3,580,456 bytes |
+
+Worst-case slack, slow 1100 mV 85 C model:
+
+| clock | setup | hold |
+|---|---|---|
+| `pll_hdmi` (the framework's) | **+0.392 ns** | +0.247 ns |
+| `clk_ram` / `CLK_VIDEO`, 96 MHz | +1.747 ns | +0.246 ns |
+| `clk_sys`, 48 MHz | +4.055 ns | +0.259 ns |
+
+The critical path is the framework's HDMI clock, not this core's logic, which
+is where a comfortable arcade core's critical path belongs. Recovery, removal
+and minimum pulse width are all positive too.
+
+**The video PLL turned out to be redundant.** `rtl/pll_video96.v` was
+instantiated as a third clock source, and the fitter merged its output into
+`rtl/pll.v`'s second output — same 96 MHz, same 50 MHz reference — so it
+bought nothing and never appeared in the timing summary as a clock of its own.
+`CLK_VIDEO` is now `clk_ram` directly and the instance is gone. The two builds
+either side of that change are the same size (18,789 and 18,806 ALMs, 3 PLLs
+both times), which is the measurement that says the merge was already
+happening. The NMK16 cores do run a second video PLL, but at 112 MHz, which
+cannot merge.
+
+### Regression
+
+The Pandora change alters the shape of a memory read, so the whole-board
+simulation was re-run and every dumped frame compared against the same frame
+from before the change. **All 45 frames, 180 to 620 in steps of
+10, are byte-identical.** The read returns the same byte at the same clock;
+only its synthesis changed.
+
+One trap on the way, worth writing down because it produced a wrong status
+report before it was caught. `TB_CYCLES` counts `clk_sys` cycles and a frame is
+804,864 of them, so the testbench's 400,000,000 default ends at frame 496: the
+first run dumped 32 of the 45 and stopped. The shell loop waiting on it never
+noticed, because `pgrep -f Vsandscrp_ref_top` matches the waiting loop's OWN
+command line and therefore always finds a process. Wait on the PID, not on a
+pattern the waiter itself contains.
+
+### The bitstream is tracked
+
+`releases/Arcade-SandScrp_20260920.rbf` is this build, md5
+`05cabd5e02595f5560a14d9c9843297d`, the same bytes as
+`output_files_sandscrp/SandScrp.rbf`. The date in the name is the one
+`build_id.v` carries and the OSD shows, so a bitstream running on a board can
+be matched back to a build. Copy the current `.rbf` there after every build, as
+the NMK16 project does.
+
+It is tracked because it is the thing a person with a DE10-Nano needs in order
+to answer any of the open gates above, and asking them to install Quartus first
+would be the only thing standing between this core and its first real
+measurement. It is **not** a release: it builds and meets timing and has never
+been powered on.
+
+**Still not run on hardware.** What the board has to settle first is unchanged:
+the raster timing (SS-1) and the sprite flip (SS-6).

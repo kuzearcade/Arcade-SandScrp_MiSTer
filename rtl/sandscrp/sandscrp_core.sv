@@ -67,6 +67,18 @@ module sandscrp_core #(
 
 	input             osd_flip,      // OSD "Flip screen": mirror the readback coordinates
 
+	// High scores and cheats share ONE work-RAM port rather than adding a
+	// second read port, which would duplicate the M10K (NMK16's NMK-10, paid
+	// for four times over there). Both only drive it while they have the CPU
+	// paused. Addresses are the 68000's own, as hiscore.dat writes them
+	// (0x702014 and 0x700048 for this game), so only the low 16 bits matter;
+	// the byte lane follows the 68000's big-endian order, even address = high.
+	input      [23:0] hs_addr,
+	input      [7:0]  hs_din,
+	output     [7:0]  hs_dout,
+	input             hs_write,
+	input             hs_access,
+
 	// video
 	output            ce_pix,
 	output     [8:0]  hcount,
@@ -286,14 +298,16 @@ module sandscrp_core #(
 	endgenerate
 
 	// ---- work RAM, 32768 words as two byte lanes (one M10K set, registered read)
-	wire [14:0] ram_a = ss_active ? ss_addr[14:0] : eab[15:1];
+	wire [14:0] ram_a = ss_active ? ss_addr[14:0] : hs_access ? hs_addr[15:1] : eab[15:1];
 	wire        ss_ram_w = ss_w & ss_sel_mainram;
+	wire        hs_w_hi  = hs_access & hs_write & ~hs_addr[0];
+	wire        hs_w_lo  = hs_access & hs_write &  hs_addr[0];
 	reg [7:0] ram_hi [0:32767];
 	reg [7:0] ram_lo [0:32767];
 	reg [7:0] ram_qh, ram_ql;
-	wire ram_we_hi = ss_ram_w | (sel_ram & cpu_write & uds);
-	wire ram_we_lo = ss_ram_w | (sel_ram & cpu_write & lds);
-	wire [15:0] ram_wdata = ss_active ? ss_wdata : oEdb;
+	wire ram_we_hi = ss_ram_w | hs_w_hi | (~hs_access & sel_ram & cpu_write & uds);
+	wire ram_we_lo = ss_ram_w | hs_w_lo | (~hs_access & sel_ram & cpu_write & lds);
+	wire [15:0] ram_wdata = ss_active ? ss_wdata : hs_access ? {hs_din, hs_din} : oEdb;
 	always @(posedge clk_sys) begin
 		if (ram_we_hi) begin ram_hi[ram_a] <= ram_wdata[15:8]; ram_qh <= ram_wdata[15:8]; end else ram_qh <= ram_hi[ram_a];
 		if (ram_we_lo) begin ram_lo[ram_a] <= ram_wdata[7:0];  ram_ql <= ram_wdata[7:0];  end else ram_ql <= ram_lo[ram_a];
@@ -302,6 +316,7 @@ module sandscrp_core #(
 	always @(posedge clk_sys) ram_a_r <= ram_a;
 	wire [15:0] ram_dout  = {ram_qh, ram_ql};
 	wire        ram_ready = (ram_a_r == ram_a);
+	assign hs_dout = hs_addr[0] ? ram_ql : ram_qh;
 
 	// ---- video block (VIEW2 + PANDORA + palette)
 	wire [15:0] v2vram_dout, v2reg_dout, pal_dout;

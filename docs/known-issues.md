@@ -4,6 +4,27 @@ Numbered `SS-n`, in the style of the NMK16 project's own list: each entry
 records what was measured, how, and what is still unknown. An entry is only
 closed by a measurement, never by reasoning.
 
+**Four are open.** Two of them (SS-1 and SS-6) cannot be answered anywhere but
+on the board; the other two are answerable in simulation and have simply not
+been chased yet.
+
+| | | |
+|---|---|---|
+| SS-1 | The board's raster timing is not documented anywhere | **OPEN** — needs a PCB measurement |
+| SS-2 | Frame alignment of a MAME state capture | closed |
+| SS-3 | A few sprite pixels per frame cannot be reproduced from any capture | closed |
+| SS-4 | Line scroll is never used in attract mode | closed |
+| SS-5 | MAME flips both VIEW2 layers from control bits 9/8 | closed |
+| SS-6 | Sprite flip is a divergence from MAME, on purpose | **OPEN** — evidence recorded, board is the tie-breaker |
+| SS-7 | The game reboots itself once during every cold boot | closed |
+| SS-8 | `sandscrpb`'s mask ROMs are the parent's pair, interleaved | closed |
+| SS-9 | Priority categories 3, 4 and 6 have never been observed | **OPEN** — needs scenes that use them, if any exist |
+| SS-10 | The FM chip makes a sound during boot that MAME does not | **OPEN** — chaseable in simulation |
+| SS-11 | Whole-board simulation matches MAME pixel for pixel | closed |
+| SS-12 | The hardware ROM path starves both CPUs | closed |
+| SS-13 | Savestates: the image is complete, and one bit of it was missing | closed |
+| SS-14 | The sprite RAM was being built out of flip-flops | closed |
+
 ---
 
 ## SS-1 — The board's raster timing is not documented anywhere (OPEN)
@@ -404,3 +425,61 @@ same scene with the game playing on, which it does. The board is the remaining
 check, together with the things savestates always need proving on real
 hardware: no freeze after a save or load, the DDR port shared with
 `screen_rotate`, and `.ss` files only loading into DDR at core start.
+
+---
+
+## SS-14 — The sprite RAM was being built out of flip-flops (CLOSED, measured)
+
+The first synthesis of the whole design — the new `SandScrp.sv` top level with
+the MiSTer framework around it — came out at **41,709 ALMs of 41,910**, which
+is the entire chip. Analysis & Synthesis put 32,914 of the 43,847 combinational
+ALUTs and 47,022 of the 58,385 registers inside `emu`, and the per-entity table
+pointed at one module:
+
+| entity | ALUTs | registers | block memory bits |
+|---|---|---|---|
+| `pandora` | 15,438 | 32,942 | 983,040 |
+
+32,768 registers is exactly one 4 KB sprite RAM, and the block-memory figure
+held exactly one copy of that RAM. Quartus said so itself, four times:
+
+    Info (276007): RAM logic "...|pandora:pandora_i|ram0" is uninferred
+    due to asynchronous read logic  (pandora.sv:108)
+
+The cause was the shape of the CPU read, not its meaning. The four byte lanes
+were read *inside* the lane `case`:
+
+```systemverilog
+case (cpu_addr[1:0])
+    2'd0: cpu_rdata <= ram0[cpu_dw];
+    ...
+```
+
+which is a conditional array read. Quartus will not infer a registered RAM
+output from one, so it built the whole array as logic instead. Reading all four
+lanes every clock and applying the lane select *after* the register is the same
+circuit to the rest of the design — `cpu_rdata` is still the byte at the
+address presented one clock earlier — and infers.
+
+The second reader made it worse. An M10K has two ports and one of them is the
+write, so the snapshot's four-lane read and the CPU's read cannot share one
+array. The mirror bank is now explicit: both banks take the same write on the
+same clock, and each carries one read port. It costs four more M10K blocks,
+32,768 bits of 5,662,720.
+
+| | before | after |
+|---|---|---|
+| Logic utilisation (ALMs, A&S estimate) | 41,709 | **19,901** |
+| Dedicated logic registers | 58,385 | **25,611** |
+| Block memory bits | 2,485,207 | 2,517,975 |
+| `pandora` ALUTs | 15,438 | **386** |
+| `pandora` registers | 32,942 | **168** |
+
+The 2026-09-19 probe of `sandscrp_core` alone did not show this: it reported
+the four lanes as simple dual port and the whole core at 4,919 registers. The
+probe and the real build differ in the framework around the core and in what
+else reaches the sprite RAM, and no recording exists of which of those changed
+the inference. The lesson is the one the measurement supports: **a core-only
+`quartus_map` probe is not a substitute for synthesising the real top level**,
+and the inference messages are worth reading on every build, not just the
+resource totals.

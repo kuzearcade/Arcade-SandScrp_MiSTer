@@ -1,0 +1,61 @@
+# Sand Scorpion (FACE, 1992) -- file list for the SandScrp .rbf.
+# See docs/hw-bringup.md. Add files HERE, never through the Quartus IDE.
+#
+# The jt12 / jt6295 vendored cores are each tens of files deep, and this
+# design instantiates only jt03.v and jt6295.v directly. SEARCH_PATH lets
+# Quartus resolve the rest by matching module name to file name, the same
+# way Verilator's -y flag already does for every sim Makefile here.
+set_global_assignment -name SEARCH_PATH rtl/third_party/jt12/hdl
+set_global_assignment -name SEARCH_PATH rtl/third_party/jt12/jt49/hdl
+set_global_assignment -name SEARCH_PATH rtl/third_party/jt6295/hdl
+
+# Top level and clocks
+set_global_assignment -name SYSTEMVERILOG_FILE SandScrp.sv
+set_global_assignment -name VERILOG_FILE rtl/pll.v
+
+# Video output chain
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video_retime.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/third_party/crt_adjust/rtl/crt_vsize.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/third_party/crt_adjust/rtl/crt_adjust.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/crt_chain.sv
+
+# The board
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sandscrp/sandscrp_core.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sandscrp/sandscrp_rom_hw.sv
+
+# Kaneko custom chips
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/kaneko/view2.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/kaneko/pandora.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/kaneko/kaneko_hit.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/kaneko/video_sandscrp.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/kaneko/video_timing_sandscrp.sv
+
+# Savestates
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/savestate/savestate.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/savestate/savestate_ui.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/savestate/ss_m68k_park.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/savestate/ss_z80_park.sv
+
+# SDRAM controller, arbiters and ROM caches
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sdram.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sdram_req.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sdram_arb.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/rom_cache1.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/rom_cache_n.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/rom_cache_n_byte.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/rom_cache1_byte.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/oki_rom_cache.sv
+
+# CPUs and sound chips
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/third_party/fx68k/fx68k.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/third_party/fx68k/fx68kAlu.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/third_party/fx68k/uaddrPla.sv
+set_global_assignment -name VERILOG_FILE rtl/third_party_gen/t80/T80s.v
+set_global_assignment -name VERILOG_FILE rtl/third_party/jt12/hdl/jt03.v
+set_global_assignment -name VERILOG_FILE rtl/third_party/jt6295/hdl/jt6295.v
+
+# OSD features
+set_global_assignment -name VERILOG_FILE rtl/third_party/hiscore/hiscore.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cheats.sv
+
+set_global_assignment -name SDC_FILE SandScrp.sdc

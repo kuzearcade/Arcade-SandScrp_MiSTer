@@ -9,14 +9,19 @@ and `sandscrpb` (*Kuai Da Shizi Huangdi*, revised hardware). They share one
 machine configuration and, as the ROM audit confirms, byte-identical graphics
 and sound data; only the 68000 program differs.
 
-**Status: in development.** Milestones 0 to 3 of `docs/PLAN.md` are done and
-measured: the video path, the whole board, and the whole board with every ROM
-byte coming out of a real SDRAM controller are each verified pixel-exact
-against MAME, savestates round-trip, and the core synthesises. Milestones 4
-and 5 — the MiSTer top level, a bitstream, and hardware — have not been
-started, and nothing has run on a board. See `docs/PLAN.md` for the plan,
-`docs/hw-bringup.md` for milestone status, and `docs/known-issues.md` for what
-is measured, what is assumed and what is still open.
+**Status: in development, nothing has run on a board.** Milestones 0 to 3 of
+`docs/PLAN.md` are done and measured: the video path, the whole board, and the
+whole board with every ROM byte coming out of a real SDRAM controller are each
+verified pixel-exact against MAME, and savestates round-trip. Milestone 4 now
+has a MiSTer top level that builds: Quartus 17.0 Lite takes it through
+synthesis, fit, assembly and timing with no errors, using 45 % of the logic and
+62 % of the block RAM, and timing closes on the first attempt. That produces a
+`.rbf`, and a `.rbf` is not a working core — the OSD, the analog and HDMI
+outputs, the ROM load, the savestates and the raster timing have all been
+exercised in simulation and nowhere else. See `docs/PLAN.md` for the plan,
+`docs/hw-bringup.md` for milestone status and the build numbers, and
+`docs/known-issues.md` for what is measured, what is assumed and what is still
+open.
 
 ## The board
 
@@ -91,7 +96,11 @@ Every claim here is a measurement; the method is in `docs/sim-harness.md`.
                        kaneko_hit_test and the inherited unit tests
     tools/             .mra generator + load model, tile decoders, the reference
                        renderer, the frame gates, board scripts
-    releases/          the three .mra files
+    releases/          the three .mra files and the current .rbf
+    SandScrp.sv        the MiSTer top level: CONF_STR, hps_io, PLLs, SDRAM,
+                       the core, the video chain and the OSD features
+    files_sandscrp.qip the file list. Add files here, never in the Quartus IDE
+    SandScrp.qsf/.qpf/.sdc/.srf    the Quartus project
 
 ## Building the ROM images
 
@@ -102,6 +111,44 @@ disagree about where a region lives:
     python3 tools/gen_sandscrp_mra.py            # releases/*.mra
     python3 tools/gen_sandscrp_mra.py --check    # off-board load model
     python3 tools/gen_sandscrp_mra.py --simroms  # $readmemh images for the sims
+
+## Building the core
+
+Quartus Prime 17.0 Lite, the version the MiSTer framework in `sys/` targets.
+The `.qsf` names the device (`5CSEBA6U23I7`) and sources `files_sandscrp.qip`
+for everything else.
+
+    export PATH=<quartus>/bin:$PATH
+    quartus_sh -t sys/build_id.tcl SandScrp SandScrp      # build_id.v, jtag.cdf
+    quartus_sh --flow compile SandScrp -c SandScrp
+
+The bitstream lands in `output_files_sandscrp/SandScrp.rbf`, and a copy of the
+current one is tracked as `releases/Arcade-SandScrp_<date>.rbf` so it can be
+used without running Quartus. The date is the one `build_id.v` carries and the
+OSD shows, so a bitstream on a board can be matched back to a build. A
+DE10-Nano wants the `.rbf` in `/media/fat/_Arcade/cores/` and the `.mra` files
+in `_Arcade/`.
+
+The whole flow — synthesis, fit, assembly and timing — runs with **0 errors**
+and closes timing on the default seed:
+
+| | |
+|---|---|
+| Logic (ALMs) | 18,806 of 41,910 (45 %) |
+| Registers | 26,338 |
+| M10K blocks | 342 of 553 (62 %) |
+| Block memory bits | 2,517,975 of 5,662,720 (44 %) |
+| DSP blocks | 45 of 112 (40 %) |
+| PLLs | 3 of 6 |
+| Worst setup slack | +0.392 ns, on the framework's HDMI clock |
+| Worst hold slack | +0.247 ns |
+
+The core's own clocks are well clear of the critical path: `clk_ram` and
+`CLK_VIDEO` (96 MHz) at +1.747 ns setup, `clk_sys` (48 MHz) at +4.055 ns.
+
+**A bitstream is not a working core.** The tracked `.rbf` builds and meets
+timing; it has never been powered on. Treat it as something to try on a board,
+not as a release. See `docs/hw-bringup.md` for which gates that leaves open.
 
 ## Attribution
 

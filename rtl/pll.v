@@ -1,5 +1,8 @@
-// Hand-written altpll instantiation: CLK_50M (50MHz) -> clk_sys (40MHz),
-// a plain 4/5 multiply/divide ratio. The Template.qsf scaffold this
+// Hand-written altpll instantiation: CLK_50M (50MHz) -> clk_sys (48MHz),
+// a 24/25 multiply/divide ratio. This core runs 48MHz rather than the 40MHz
+// the NMK16 cores use because every clock on the Sand Scorpion board is an
+// exact divider of it: 68000 /4, Z80 and YM2203 /12, OKI /24, pixel /8.
+// An exact divider cannot drift the way a per-mille accumulator can. The Template.qsf scaffold this
 // project inherited from Tier 0 referenced this file but never actually
 // generated it (rtl/pll.v/rtl/mycore.v/rtl/cos.sv/rtl/lfsr.v didn't
 // exist) — no interactive Quartus GUI is available in this environment
@@ -52,9 +55,9 @@ module pll
 
 	altpll #(
 		.bandwidth_type("AUTO"),
-		.clk0_divide_by(5),
+		.clk0_divide_by(25),
 		.clk0_duty_cycle(50),
-		.clk0_multiply_by(4),
+		.clk0_multiply_by(24),
 		.clk0_phase_shift("0"),
 		.clk1_divide_by(25),
 		.clk1_duty_cycle(50),

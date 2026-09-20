@@ -105,6 +105,16 @@ time is roughly 110 seconds of wall clock; reaching the title screen is a
   game's own initialisation and reboots it forever.
 - Progress lines report the non-blank pixel count alongside the counters, so a
   run that has gone black is visible without waiting for frame dumps.
+- **`TB_CYCLES` is clk_sys cycles, not frames**, and a frame is 804,864 of them
+  (384 x 262 pixels at clk_sys/8). The default 400,000,000 therefore stops at
+  frame 496, which silently truncates any `TB_DUMP_TO` past it — reaching frame
+  620 needs 520,000,000. Multiply the last frame you want by 804,864 and round
+  up.
+- **Do not wait on a simulator with `pgrep -f`.** A shell loop written as
+  `until ... ! pgrep -f Vsandscrp_ref_top; do sleep; done` matches its own
+  command line and so always finds a running process, which makes a finished
+  run look like a hung one. Wait on the PID (`[ -d /proc/$pid ]`) or on the
+  output the run produces.
 
 ## `sim/rtl/sandscrp_hw` — the same core with SDRAM underneath
 

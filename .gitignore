@@ -94,10 +94,13 @@ output_files*/
 db/
 incremental_db/
 greybox_tmp/
-# releases/ holds the hand-authored .mra files AND the current .rbf
-# bitstream for each core, copied there from that core's own
-# output_files_nmk16_<family>/ after every build so hardware users get a
-# matching pair without running Quartus.
+# releases/ holds the hand-authored .mra files AND the current .rbf bitstream,
+# copied there from output_files_sandscrp/ after every build so hardware users
+# get a matching pair without running Quartus. (Inherited from NMK16, where the
+# source directory was output_files_nmk16_<family>/ and there were four of
+# them; this core builds one .rbf for all three sets.) The .rbf is named
+# Arcade-SandScrp_<BUILD_DATE>.rbf, the same date build_id.v carries, so a
+# bitstream on a board can be matched back to a build.
 /build_id.v
 /jtag.cdf
 sim/rtl/*/.cnxerr

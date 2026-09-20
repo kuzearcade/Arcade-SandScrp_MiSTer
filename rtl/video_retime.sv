@@ -37,7 +37,11 @@ module video_retime #(
 	parameter [4:0] M0_DIV = 5'd14,
 	parameter [9:0] M1_X0 = 10'd60,  M1_HT = 10'd448, M1_HS = 10'd404, M1_HW = 10'd28, M1_AW = 10'd320,
 	parameter [4:0] M1_DIV = 5'd16,
-	parameter integer LINE_CLKS = 7168   // clk_r per line: M0_HT*M0_DIV == M1_HT*M1_DIV
+	parameter integer LINE_CLKS = 7168,  // clk_r per line: M0_HT*M0_DIV == M1_HT*M1_DIV
+	// Lines per frame. 278 is the NMK16 boards' raster; Sand Scorpion's is
+	// 262 (rtl/kaneko/video_timing_sandscrp.sv). The visible window stays
+	// rows 16..239 on both, which is what tall240 alters, not this.
+	parameter integer VTOTAL_P = 278
 ) (
 	// write side — the core's raster
 	input         clk_w,
@@ -86,7 +90,9 @@ module video_retime #(
 	localparam [9:0] R_HW_8 = M0_HW,  R_HW_7 = M1_HW;    // hsync width (4 us)
 	localparam [9:0] AW_8   = M0_AW,  AW_7   = M1_AW;    // active width
 	localparam [4:0] DIV_8  = M0_DIV, DIV_7  = M1_DIV;   // clk_r per pixel (5 bits: may be 16)
-	localparam [9:0] VTOTAL = 10'd278;
+	/* verilator lint_off WIDTHTRUNC */
+	localparam [9:0] VTOTAL = VTOTAL_P;
+	/* verilator lint_on WIDTHTRUNC */
 	wire [9:0] v_start = tall240 ? 10'd8   : 10'd16;
 	wire [9:0] v_end   = tall240 ? 10'd248 : 10'd240;   // exclusive: the first vblank line
 	wire [9:0] v_blank = VTOTAL - v_end;                // lines of vblank (30 / 38)

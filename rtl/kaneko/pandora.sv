@@ -92,11 +92,37 @@ module pandora #(
 	localparam integer PLANE_PX = PLANE_W * PLANE_H;
 
 	// ---------------------------------------------------------------- sprite RAM
-	reg [7:0] ram0 [0:1023];
+	// Two independent readers: the 68000 (one byte at a time) and the eof
+	// snapshot (all four lanes at once). An M10K has two ports, and one of
+	// them is the write, so a single array cannot serve both reads -- given
+	// the chance, Quartus keeps ONE copy in M10K, builds the other read out
+	// of a REGISTER copy of the whole array, and charges 32,768 flip-flops
+	// and about 15,000 ALUTs for it (measured: the first SandScrp synthesis
+	// put pandora at 15,432 ALUTs and 32,942 registers, and the block-memory
+	// total held exactly one copy of this RAM).
+	//
+	// So the copy is explicit. Both banks take the same write on the same
+	// clock and are therefore always identical; each carries one read port,
+	// which is what an M10K can actually do. The cost is four more M10K
+	// blocks -- 32,768 bits against 5,662,720 on the chip.
+	reg [7:0] ram0 [0:1023];      // read by the 68000
 	reg [7:0] ram1 [0:1023];
 	reg [7:0] ram2 [0:1023];
 	reg [7:0] ram3 [0:1023];
+	reg [7:0] sram0 [0:1023];     // read by the snapshot
+	reg [7:0] sram1 [0:1023];
+	reg [7:0] sram2 [0:1023];
+	reg [7:0] sram3 [0:1023];
 	wire [9:0] cpu_dw = cpu_addr[11:2];
+	// All four lanes are read EVERY clock and the lane select is applied after
+	// the register, not before it. Selecting the lane first -- a read inside
+	// the case -- is a conditional array read, which Quartus reports as
+	// "uninferred due to asynchronous read logic" and then builds out of
+	// flip-flops: 32,768 registers and about 15,000 ALUTs, measured on the
+	// first SandScrp synthesis. Timing is unchanged either way: cpu_rdata is
+	// still the byte at the address presented one clock earlier.
+	reg [7:0] q0, q1, q2, q3;
+	reg [1:0] lane_d;
 	always @(posedge clk) begin
 		if (cpu_we) case (cpu_addr[1:0])
 			2'd0: ram0[cpu_dw] <= cpu_wdata;
@@ -104,18 +130,31 @@ module pandora #(
 			2'd2: ram2[cpu_dw] <= cpu_wdata;
 			default: ram3[cpu_dw] <= cpu_wdata;
 		endcase
-		case (cpu_addr[1:0])
-			2'd0: cpu_rdata <= ram0[cpu_dw];
-			2'd1: cpu_rdata <= ram1[cpu_dw];
-			2'd2: cpu_rdata <= ram2[cpu_dw];
-			default: cpu_rdata <= ram3[cpu_dw];
-		endcase
+		q0 <= ram0[cpu_dw];
+		q1 <= ram1[cpu_dw];
+		q2 <= ram2[cpu_dw];
+		q3 <= ram3[cpu_dw];
+		lane_d <= cpu_addr[1:0];
 	end
+	always @* case (lane_d)
+		2'd0: cpu_rdata = q0;
+		2'd1: cpu_rdata = q1;
+		2'd2: cpu_rdata = q2;
+		default: cpu_rdata = q3;
+	endcase
 
-	// snapshot: second read port over the four lanes, registered
+	// snapshot: the mirror bank's read port, four lanes at once, registered
 	reg  [9:0]  snap_rd_addr;
 	reg  [31:0] snap_rd_data;
-	always @(posedge clk) snap_rd_data <= {ram3[snap_rd_addr], ram2[snap_rd_addr], ram1[snap_rd_addr], ram0[snap_rd_addr]};
+	always @(posedge clk) begin
+		if (cpu_we) case (cpu_addr[1:0])
+			2'd0: sram0[cpu_dw] <= cpu_wdata;
+			2'd1: sram1[cpu_dw] <= cpu_wdata;
+			2'd2: sram2[cpu_dw] <= cpu_wdata;
+			default: sram3[cpu_dw] <= cpu_wdata;
+		endcase
+		snap_rd_data <= {sram3[snap_rd_addr], sram2[snap_rd_addr], sram1[snap_rd_addr], sram0[snap_rd_addr]};
+	end
 
 	reg  [31:0] snap [0:1023];
 	reg  [9:0]  snap_addr;
