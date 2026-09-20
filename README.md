@@ -15,13 +15,14 @@ whole board with every ROM byte coming out of a real SDRAM controller are each
 verified pixel-exact against MAME, and savestates round-trip. Milestone 4 now
 has a MiSTer top level that builds clean and **runs on a DE10-Nano** — title
 screen, attract cycle, high-score table, and gameplay on coin, start and fire.
+**All three sets have been swept on the board** and each boots, runs its
+attract and plays.
 
 ![Sand Scorpion running on a DE10-Nano](docs/board/gameplay.png)
 
-That is the first board gate, not the last. Orientation, Flip screen, CRT
-Adjust, the DIP menu, autofire, pause, high scores, cheats, savestates, audio
-against MAME and the other two `.mra` have all been exercised in simulation and
-nowhere else, and no frame-level comparison against the reference simulation
+That is an early board gate, not the last. Orientation, Flip screen, CRT
+Adjust, the DIP menu, autofire, pause, high scores, cheats, savestates and
+audio against MAME have all been exercised in simulation and nowhere else, and no frame-level comparison against the reference simulation
 has been run on the board yet. See `docs/PLAN.md` for the plan,
 `docs/hw-bringup.md` for milestone status, the build numbers and the bring-up
 log, and `docs/known-issues.md` for what is measured, what is assumed and what

@@ -37,7 +37,7 @@ plan's M4 gates, and which of them a bitstream alone cannot answer:
 | A demo frame with sprites pixel-identical to the reference sim (the byte-order check) | not run |
 | Audio correlation vs MAME over 60 s | not run |
 | Coin, start and play on a gamepad | not run |
-| All three `.mra` swept | not run |
+| All three `.mra` swept | **met** — all three boot, run the attract and play, and each differs from the others on at least one frame |
 
 M5's features are all instantiated and none of them are verified. Their gates
 are board gates almost without exception: paused screenshots for Flip screen,
@@ -264,6 +264,47 @@ off.
 
 The timing numbers moved very little across the three builds: worst setup slack
 +0.392, +0.692 and +0.498 ns, always on the framework's HDMI clock.
+
+### All three sets swept on the board
+
+`tools/mister_sweep_sandscrp.sh` runs on the MiSTer and does the same thing to
+each `.mra` in turn: load, settle 45 s, capture the attract, coin-coin-start,
+settle, capture, then fire and a direction, capture again. One line per set to
+a log, so a dropped ssh cannot lose the run.
+
+    sandscrp  shots=3 mister=1
+    sandscrpa shots=3 mister=1
+    sandscrpb shots=3 mister=1
+    SWEEP COMPLETE
+
+**All three boot, run the attract and play.** Every capture is 256x224 with
+38,000-50,000 non-black pixels and 52-92 colours; none is blank, none is
+stuck.
+
+The frames also show the three are genuinely running their own programs rather
+than falling back to the parent, which matters because two of the `.mra` name
+their zip as `<clone>|<parent>`:
+
+| | attract | gameplay | after firing |
+|---|---|---|---|
+| sandscrp vs sandscrpa | **1,535 px (2.7 %)** | 0 | 0 |
+| sandscrp vs sandscrpb | 0 | **31,157 px (54.3 %)** | **5,553 px (9.7 %)** |
+| sandscrpa vs sandscrpb | **1,535 px** | **31,157 px** | **5,553 px** |
+
+Each set differs from each other set somewhere. That is the point of the table:
+a set that had silently loaded the parent's program would match it on every
+frame, and none of them does. It is corroborated by the `.mra` themselves --
+`sandscrpa` loads `1.ic4`/`2.ic5` and `sandscrpb` loads `11.ic4`/`12.ic5`, and
+those names exist only in their own zips -- and by the ROMs, where the earlier
+set's program differs from the parent's in a third to a half of its bytes.
+
+Two caveats worth stating rather than glossing. The identical gameplay frames
+between `sandscrp` and `sandscrpa` are expected, not suspicious: the input is
+scripted at fixed wall-clock offsets and both revisions take the same code path
+there. And the attract difference is spread across the animated area of the
+screen, so on its own it shows a different animation phase; it is the
+combination with the part names and the ROM contents that settles which program
+each set is running.
 
 ### Not yet checked on the board
 
