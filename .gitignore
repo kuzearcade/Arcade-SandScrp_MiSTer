@@ -131,6 +131,13 @@ PLLJ_PLLSPE_INFO.txt
 sim/**/obj_dir/
 sim/**/obj_dir_*/
 sim/**/obj_dir48/
+# obj_boot/: the boot-length build of the hardware-path testbench. This glob
+# was missing when the M3 work ran, so 168 MB of Verilator output -- object
+# files and two 80 MB precompiled headers -- was committed and had to be
+# purged from history before the first push. Any new build directory needs a
+# rule here; the safest habit is to name them obj_* and match that.
+sim/**/obj_boot/
+sim/**/obj_*/
 # per-run logs of the multi-game harnesses (sim/rtl/gunnail_mg*)
 sim/rtl/*/*.err
 sim/rtl/gunnail_mg_hw/unfixed_*/
