@@ -4,6 +4,7 @@
 #   mister_keys.py 5 1 up:1.0 lctrl
 # Keys: 0-9, f1-f12, up down left right, lctrl lalt space lshift, a-z.
 # Each key is pressed, held (default 0.15 s), released, then 0.3 s pause.
+# 'a+b' presses them together as a chord (Alt+F1 for a savestate save).
 import fcntl, os, struct, sys, time
 
 KEYS = {'1':2,'2':3,'3':4,'4':5,'5':6,'6':7,'7':8,'8':9,'9':10,'0':11,
@@ -32,13 +33,20 @@ def ev(t, c, v):
     now = time.time(); sec = int(now); usec = int((now - sec) * 1e6)
     os.write(fd, struct.pack('llHHi', sec, usec, t, c, v))
 
+# 'a+b' is a CHORD: every key down, held together, then up in reverse order.
+# Savestates need it -- Alt+F1 saves and F1 alone loads, so pressing the two in
+# sequence is a different command. The default 0.15 s hold is also too short for
+# a savestate: the first attempts looked like "load does nothing" until the hold
+# went up to 0.6 s (docs/hw-bringup.md, 2026-09-20).
 for arg in sys.argv[1:]:
-    name, _, hold = arg.partition(':')
-    code = KEYS[name.lower()]
+    combo, _, hold = arg.partition(':')
+    codes = [KEYS[n.lower()] for n in combo.split('+')]
     hold = float(hold) if hold else 0.15
-    ev(EV_KEY, code, 1); ev(EV_SYN, 0, 0)
+    for c in codes:
+        ev(EV_KEY, c, 1); ev(EV_SYN, 0, 0); time.sleep(0.03)
     time.sleep(hold)
-    ev(EV_KEY, code, 0); ev(EV_SYN, 0, 0)
+    for c in reversed(codes):
+        ev(EV_KEY, c, 0); ev(EV_SYN, 0, 0); time.sleep(0.03)
     time.sleep(0.3)
 
 time.sleep(0.5)

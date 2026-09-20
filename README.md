@@ -21,10 +21,13 @@ attract and plays.
 
 ![Sand Scorpion running on a DE10-Nano](docs/board/gameplay.png)
 
-That is an early board gate, not the last. Orientation, Flip screen, CRT
-Adjust, the DIP menu, autofire, pause, high scores, cheats, savestates and
-audio against MAME have all been exercised in simulation and nowhere else, and no frame-level comparison against the reference simulation
-has been run on the board yet. See `docs/PLAN.md` for the plan,
+Most of the OSD feature set has now been checked on the board too: DIP
+switches, Flip screen (an exact 180-degree rotation), CRT Adjust, Pause, High
+scores including the patch-the-`.nvm` proof, and savestate save, with savestate
+load working but not on every attempt. Orientation cannot be observed with the
+tools to hand, cheats are inconclusive and autofire is untested; audio against
+MAME and a frame-level comparison with the reference simulation have not been
+run on hardware either. See `docs/PLAN.md` for the plan,
 `docs/hw-bringup.md` for milestone status, the build numbers and the bring-up
 log, and `docs/known-issues.md` for what is measured, what is assumed and what
 is still open.

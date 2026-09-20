@@ -20,7 +20,7 @@ the evidence in `docs/known-issues.md`.
 | **M2 Full reference sim** | done — the whole board run from reset is **pixel-exact against MAME**, 43 of 44 frames matching once the two independent timelines are allowed to drift |
 | **M3 Hardware-path sim** | done — golden-byte audit **3,801,088 bytes, 0 wrong, 0 timeouts**; frames pixel-exact against MAME through the SDRAM path; sprite pass 106,797 clocks of a frame's 804,864 with 0 late swaps; savestate round trip verified at the state level |
 | **M4 Quartus and board** | **boots and plays on a DE10-Nano.** The full Quartus flow runs clean (18,806 ALMs of 41,910, 342 of 553 M10K, timing closed first try), and the third bitstream reaches the title screen, the attract cycle and gameplay on coin/start/fire. Took two black screens to get there — SS-15. Most board gates below are still unchecked |
-| **M5 Feature parity and release** | wired, unverified — the OSD, CRT Adjust, autofire, pause, high scores, cheats and savestates are all instantiated in the top level; none of it has been exercised anywhere but in simulation |
+| **M5 Feature parity and release** | **mostly verified on the board.** DIP switches, Flip screen, CRT Adjust, Pause, High scores and savestate *save* all pass; savestate *load* works but not on every attempt. Orientation cannot be observed with the tools here, cheats are inconclusive, autofire untested. The database and `.mra` distribution are published |
 
 ### What M4 still owes its gates
 
@@ -39,12 +39,10 @@ plan's M4 gates, and which of them a bitstream alone cannot answer:
 | Coin, start and play on a gamepad | not run |
 | All three `.mra` swept | **met** — all three boot, run the attract and play, and each differs from the others on at least one frame |
 
-M5's features are all instantiated and none of them are verified. Their gates
-are board gates almost without exception: paused screenshots for Flip screen,
-both Orientation directions, CRT Adjust frame sizes, the direct-video menu
-split, the high-score patch-the-`.nvm` proof, each cheat slot, and the
-savestate save / reload-core / load sequence that the NMK16 project found could
-only be broken on hardware.
+M5's gates are now mostly met on the board — see the OSD feature section below
+for the evidence and for the three that are not (Orientation, cheats,
+autofire). The direct-video menu split is also untested: this board runs with
+`direct_video=0`.
 
 ### What the board has to settle first
 
@@ -312,6 +310,76 @@ Orientation and Flip screen, CRT Adjust, the DIP menu, autofire, pause, high
 scores, cheats, savestates, audio against MAME, the other two `.mra`, and a
 frame-level comparison against the reference simulation. Booting and playing is
 the first gate, not the last.
+
+## 2026-09-20 — The OSD feature set on the board
+
+### How, and why not through the menus
+
+The MiSTer's native `screenshot` captures the core's video **without the OSD
+overlay** — verified by opening the menu and screenshotting it, which returns
+the game and no menu. So the OSD cannot be read back, and blind key-navigation
+of it would be unverifiable: pressing keys and hoping is not a measurement.
+
+What can be driven exactly is the settings the OSD writes:
+
+| | |
+|---|---|
+| `/media/fat/config/<setname>.CFG` | the 128-bit OSD status word, 16 bytes little-endian |
+| `/media/fat/config/dips/<mra name>.dip` | 8 bytes, the `<switches>` block |
+
+Both are read when the `.mra` is loaded. The format was confirmed before being
+trusted, by decoding the sibling core's own saved file: `tdragon2.CFG` has bits
+8, 39 and 101 set, which is Orientation = 1, High Scores on and CRT Adjust on —
+exactly the state this log already records for that board.
+
+So each option is set in the file, the core is loaded, and the result is judged
+by what the picture does. `tools/board_feature_test.py` is that harness.
+
+Two things made the results trustworthy that are worth keeping:
+
+- **A static screen.** The attract animates and never phase-locks between runs,
+  so comparing two runs frame to frame is meaningless. Service mode's colour-bar
+  screen is pixel-identical 5 s apart, which turns "about the same" into "0
+  differing pixels".
+- **A long enough key hold.** `mister_keys.py`'s 0.15 s default is too short for
+  a savestate. The first attempts looked exactly like "load is broken"; at 0.6 s
+  they work. The chord form (`lalt+f1`) had to be added too — Alt+F1 saves and
+  F1 alone loads, so pressing them in sequence is a different command.
+
+### What passed
+
+| feature | result |
+|---|---|
+| **DIP switches** | **Pass.** Service Mode (SW2:8) set through the `.dip` file puts the game in its colour-bar test screen. That exercises the whole path: `.dip` → ioctl index 254 → `dsw2_i` → the YM2203's port B → the Z80 → the 68000. |
+| **Flip screen** | **Pass, exactly.** Against the static screen, flipped vs unflipped is **0 differing pixels of 57,344** as a 180-degree rotation, where every other transform (as-is, mirror H, mirror V) differs by 53,760. |
+| **CRT Adjust** | **Pass.** V-Size in Cabinet mode changes the real output geometry: +4 gives 236 active lines and -4 gives 221, against 224 with it off. |
+| **Pause** | **Pass.** With it on the machine is frozen and consecutive frames are identical; with it off the attract moves by about 55,000 pixels a frame. |
+| **High scores** | **Pass, end to end.** Opening the OSD writes `Sand Scorpion.nvm`, 84 bytes, exactly the size the `.mra` declares. Patching every rank in that file to the rank-10 value and reloading makes the in-game BEST TEN FIGHTERS table show that value for all ten ranks — the restore path, proven from the outside. |
+| **Savestates** | **Save passes.** `Sand Scorpion_1.ss` is 115,464 bytes, which is this core's declared image of 115,456 plus an 8-byte header. **Load works but not every time**: proven twice (after a core restart, attract → a live game; in-session on slot 2, game over → a live game restored), and once, in-session on slot 1, it did not restore. Not diagnosed. |
+| **Coin, start, fire, movement** | **Pass.** Three coins put CREDITS 3 on the title screen. |
+
+### What is still not verified, and why
+
+- **Orientation** cannot be seen this way at all. It is `screen_rotate`'s
+  framebuffer, and the native capture is the core's video *before* that, so all
+  three settings return 256x224. It needs a capture on the HDMI output. Nothing
+  here says it is broken; nothing here says it works.
+- **Cheats** are inconclusive. Infinite Credits and Infinite Bombs were both
+  attempted, and the comparisons failed on framing rather than on the feature:
+  the credit count only shows on the title screen, the bomb count only during
+  play, and the scripted runs did not reliably land on the same screen. It needs
+  a better observable, not more attempts of the same kind.
+- **Autofire** is untested. Its menu is hidden unless the `.mra`'s third
+  `<switches>` byte sets bit 6, and rapid fire is not something a still frame
+  settles.
+
+### One bug found
+
+**F2 is claimed twice.** This core's keyboard block uses F2 for the Service Mode
+toggle, and `savestate_ui` uses the same scancode for savestate slot 2. Both act
+on it. Nothing was corrupted in testing, but the two should not share a key —
+and separately, toggling Service Mode mid-game does nothing, because the game
+reads that switch at boot, so the keyboard toggle is only useful before a reset.
 
 ### The bitstream is tracked
 
