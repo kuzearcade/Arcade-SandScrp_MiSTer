@@ -217,7 +217,7 @@ the visible area tears the frame, while MAME renders the whole frame at vblank.
 One such frame was captured half black and half white against MAME's uniform
 white. This is a property of drawing the way the hardware draws.
 
-## SS-12 — The hardware ROM path starves both CPUs (OPEN, in progress)
+## SS-12 — The hardware ROM path starves both CPUs (CLOSED, measured)
 
 The reference simulation (SS-11) is pixel-exact, but the same core with its
 ROM bytes coming out of the real SDRAM controller does not boot. Three real
@@ -241,14 +241,52 @@ simulation because it indexes plain arrays:
    one-cycle pulse, so even a correct adapter is not enough: every port needs
    an arbiter, including the ones with a single consumer.
 
-What remains: with all three fixed, nothing executes garbage any more, but both
-CPUs are starved. The 68000 manages 3,530 ROM reads per frame against the
-reference simulation's 40,243, and the Z80 makes no progress at all (0 YM2203
-writes, so its WAIT_n is never released).
+The instrumentation was built rather than guessing further, and named the
+cause on its first run. Two more bugs, both in the download:
 
-The next step is instrumentation, not another guess: per-cache hit/miss and
-request/grant counters on all four ports, and the golden-byte audit the plan
-asks for -- walk every ROM byte through each cache and compare it against the
-image the .mra generator produced. A frame-level symptom cannot distinguish a
-cache that never fills from one that fills with the wrong bytes, and this has
-already cost three wrong theories.
+4. **`ioctl_wait` was tied low.** A write takes the controller about eight
+   clk_sys cycles and nothing queues, so the loader outran it: the counters
+   showed **376,965 of 3,014,656 bytes** reaching the SDRAM, one in eight.
+   Every consumer then read zeros -- which is exactly why the 68000 executed
+   rubbish and the Z80, reading a ROM full of 0x00 NOPs, never wrote its sound
+   chip. Backpressure now comes from the port's own busy.
+5. **The download's request was a one-cycle pulse.** An arbiter samples
+   requests in its own clocked block and can miss one, and it missed exactly
+   one: `requests raised 3014656, writes completed 3014655`. The one it missed
+   was the FIRST write of the download, so the 68000's reset vector read 0000
+   while every other byte was provably correct -- a single wrong word out of
+   three million, and enough to stop the machine. The request is now held
+   until the write completes, the way every cache on the other ports already
+   holds its own.
+
+And one more, found the same way: **every cache must be held in reset for the
+whole download**. The program cache otherwise fills from SDRAM that has not
+been written yet and serves those zeros as a HIT forever.
+
+### The gate
+
+Every byte of every region walked through the real cache and the real
+controller and compared against the image the `.mra` generator produced:
+
+| region | checked | wrong | timeouts |
+|---|---|---|---|
+| maincpu (68000 words) | 262,144 | 0 | 0 |
+| audiocpu (Z80 bytes) | 131,072 | 0 | 0 |
+| sprites | 1,048,576 | 0 | 0 |
+| view2 layer 0 | 1,048,576 | 0 | 0 |
+| view2 layer 1 | 1,048,576 | 0 | 0 |
+| oki | 262,144 | 0 | 0 |
+| **total** | **3,801,088** | **0** | **0** |
+
+Every channel's fetches started equals its fetches finished, and every SDRAM
+port's requests equal its acknowledgements. The core then boots through the
+SDRAM path with the same behaviour as the reference simulation: at frame 60
+the 68000 has written its boot signature (0x123 at 0x700070) and the Z80 has
+made 278 YM2203 writes against the reference's 274, with ROM reads within
+1.7 % (2,454,833 against 2,414,590 -- the difference is the SDRAM latency the
+reference simulation does not have).
+
+The lesson stands as written: a frame-level symptom cannot distinguish a cache
+that never fills from one that fills with the wrong bytes. Five bugs, and the
+counters named every one of them; the three theories tried before building
+them were all wrong.
