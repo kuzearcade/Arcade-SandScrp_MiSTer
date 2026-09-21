@@ -1,0 +1,46 @@
+diff --git a/src/mame/kaneko/sandscrp.cpp b/src/mame/kaneko/sandscrp.cpp
+index 56b6012a2dc..6fd4f7d1cc4 100644
+--- a/src/mame/kaneko/sandscrp.cpp
++++ b/src/mame/kaneko/sandscrp.cpp
+@@ -468,14 +468,39 @@ void sandscrp_state::sandscrp(machine_config &config)
+ 
+ 	GENERIC_LATCH_8(config, m_soundlatch[1]);
+ 
+-	OKIM6295(config, "oki", 12000000/6, okim6295_device::PIN7_HIGH).add_route(ALL_OUTPUTS, "mono", 0.5);
++	// LOCAL DIAGNOSTIC PATCH (Arcade-SandScrp_MiSTer, SS-10 audio isolation).
++	// Not for upstream. SS_YM_ISO selects which half of the YM2203 is routed,
++	// so MAME's own FM/SSG balance can be measured on identical content
++	// instead of inferred from max-scale arithmetic. MAME rotates ymfm's
++	// outputs so the three SSG channels are 0..2 and FM is 3 (ymfm_mame.h).
++	//   SS_YM_ISO=fm    FM only,  OKI muted
++	//   SS_YM_ISO=ssg   SSG only, OKI muted
++	//   unset           stock behaviour
++	const char *ss_iso = getenv("SS_YM_ISO");
++	const bool ss_fm  = ss_iso && strcmp(ss_iso, "fm")  == 0;
++	const bool ss_ssg = ss_iso && strcmp(ss_iso, "ssg") == 0;
++
++	OKIM6295(config, "oki", 12000000/6, okim6295_device::PIN7_HIGH).add_route(ALL_OUTPUTS, "mono", (ss_fm || ss_ssg) ? 0.0 : 0.5);
+ 
+ 	/* YM3014B + YM2203C */
+ 	ym2203_device &ymsnd(YM2203(config, "ymsnd", 4000000));
+ 	ymsnd.irq_handler().set_inputline(m_audiocpu, 0);
+ 	ymsnd.port_a_read_callback().set_ioport("DSW1");
+ 	ymsnd.port_b_read_callback().set_ioport("DSW2");
+-	ymsnd.add_route(ALL_OUTPUTS, "mono", 0.5);
++	if (ss_fm)
++	{
++		ymsnd.add_route(3, "mono", 0.5);
++	}
++	else if (ss_ssg)
++	{
++		ymsnd.add_route(0, "mono", 0.5);
++		ymsnd.add_route(1, "mono", 0.5);
++		ymsnd.add_route(2, "mono", 0.5);
++	}
++	else
++	{
++		ymsnd.add_route(ALL_OUTPUTS, "mono", 0.5);
++	}
+ }
+ 
+ 

@@ -25,7 +25,7 @@ about the two from the mix alone.
 
 Apply with:
 
-    cd ~/mame && patch -p0 < .../tools/mame-patches/sandscrp-ym-isolation.patch
+    cd ~/mame && git apply .../tools/mame-patches/sandscrp-ym-isolation.patch
 
 then rebuild only that driver:
 
