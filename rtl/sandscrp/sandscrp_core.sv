@@ -144,7 +144,13 @@ module sandscrp_core #(
 	output     [31:0] dbg_reads_rom, dbg_reads_ram, dbg_writes_ram, dbg_acc_other,
 	output     [23:0] dbg_last_other,
 	output signed [15:0] dbg_ym_snd,
-	output signed [15:0] dbg_oki_snd
+	output signed [15:0] dbg_oki_snd,
+	// SS-10 isolation: the YM2203's two halves before they are summed, so the
+	// FM and the SSG can be compared against MAME separately. MAME routes them
+	// as two streams (ymfm's ym2203 has FM_OUTPUTS + SSG_OUTPUTS), and the mix
+	// alone cannot say which of the two is wrong.
+	output signed [15:0] dbg_fm_snd,
+	output        [9:0]  dbg_psg_snd
 );
 	// ------------------------------------------------------------------
 	// Clock enables — every one an exact divider of 48 MHz
@@ -729,6 +735,8 @@ module sandscrp_core #(
 	end
 	wire [7:0] ym_dout;
 	wire signed [15:0] ym_snd;
+	wire signed [15:0] fm_snd_w;
+	wire        [9:0]  psg_snd_w;
 	// during a replay the shadow drives the chip instead of the Z80
 	wire       ym_wr_n_eff   = rep_on ? ~rep_ym_we : ym_wr_n;
 	wire       ym_addr_eff   = rep_on ? rep_a0     : ym_addr_sel;
@@ -740,7 +748,7 @@ module sandscrp_core #(
 		.din(ym_din_eff), .addr(ym_addr_eff), .cs_n(1'b0), .wr_n(ym_wr_n_eff),
 		.dout(ym_dout), .irq_n(ym_irq_n),
 		.IOA_in(dsw1_i), .IOB_in(dsw2_i), .IOA_out(), .IOB_out(), .IOA_oe(), .IOB_oe(),
-		.psg_A(), .psg_B(), .psg_C(), .fm_snd(), .psg_snd(), .snd(ym_snd), .snd_sample(),
+		.psg_A(), .psg_B(), .psg_C(), .fm_snd(fm_snd_w), .psg_snd(psg_snd_w), .snd(ym_snd), .snd_sample(),
 		.debug_view()
 	);
 
@@ -793,12 +801,24 @@ module sandscrp_core #(
 	// places against the FM before the halving. Every term gets its own signed
 	// wire: a ternary chain with an unsigned concatenation in it evaluates
 	// unsigned and turns >>> logical (NMK16's tomagic clipping thump).
+	// SS-10, measured and REJECTED: jt12_top mixes the YM2203 as
+	//     snd = fm_snd + {psg_snd, 5'd0}
+	// and it is tempting to call the FM twice as loud as MAME's, because MAME
+	// routes the chip's four streams at 0.5 each. It is not: the mix below
+	// already applies its own >>> 1 to the combined term, so the FM reaches
+	// the output at 32767/2 = 16383, exactly MAME's routed FM. Halving it
+	// again was tried and measured against a 30 s MAME capture: every band
+	// got 0.1-0.5 dB WORSE and the band correlation did not move. Reverted.
+	// The remaining difference is a near-flat 1.8 dB, not a spectral tilt --
+	// see docs/known-issues.md SS-10.
 	wire signed [17:0] ym_term  = {{2{ym_snd[15]}}, ym_snd};
 	wire signed [17:0] oki_term = {{2{oki_snd[13]}}, oki_snd, 2'b00};
 	wire signed [17:0] mix = (ym_term + oki_term) >>> 1;
 	assign snd = (mix > 18'sd32767)  ?  16'sd32767 :
 	             (mix < -18'sd32768) ? -16'sd32768 : mix[15:0];
-	assign dbg_ym_snd  = ym_snd;
+	assign dbg_fm_snd  = fm_snd_w;
+	assign dbg_psg_snd = psg_snd_w;
+	assign dbg_ym_snd  = ym_snd;   // jt03's own mix, kept as-is for reference
 	assign dbg_oki_snd = {oki_snd, 2'b00};
 	assign dbg_ym_writes  = ym_writes;
 	assign dbg_oki_writes = oki_writes;

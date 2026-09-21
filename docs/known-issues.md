@@ -19,7 +19,7 @@ been chased yet.
 | SS-7 | The game reboots itself once during every cold boot | closed |
 | SS-8 | `sandscrpb`'s mask ROMs are the parent's pair, interleaved | closed |
 | SS-9 | Priority categories 3, 4 and 6 have never been observed | **OPEN** — needs scenes that use them, if any exist |
-| SS-10 | The FM chip makes a sound during boot that MAME does not | **OPEN** — chaseable in simulation |
+| SS-10 | The FM chip makes a sound during boot that MAME does not | **OPEN** — isolated to the FM; levels measured and closed (0.979 band corr) |
 | SS-11 | Whole-board simulation matches MAME pixel for pixel | closed |
 | SS-12 | The hardware ROM path starves both CPUs | closed |
 | SS-13 | Savestates: the image is complete, and one bit of it was missing | closed |
@@ -616,3 +616,49 @@ path is verified in simulation" and "the hardware path is verified" are
 different claims**, and the whole gap between them is the top level, the one
 file no simulation here covers. A first board test should start by proving
 bytes reached the SDRAM, not by looking at a frame.
+
+### 2026-09-20 (later): the isolation capture, and a rejected fix
+
+The per-source isolation this entry asked for was finally done on both sides.
+MAME was patched locally so `SS_YM_ISO=fm|ssg` routes one half of the YM2203
+at a time (env-gated, stock by default; `src/mame/kaneko/sandscrp.cpp`), and
+the core's `dbg_fm_snd` / `dbg_psg_snd` taps give the same split. 30 s of
+attract from each, aligned on the SSG envelope:
+
+| | FM rms | SSG rms | SSG/FM |
+|---|---:|---:|---:|
+| MAME | 599 | 5505 | **9.18** |
+| core | 1079 | 7125 | **6.61** |
+
+So the SSG dominates the mix in *both* models — it was never "the FM is
+missing" — and the core carries 28% more FM relative to SSG than MAME does.
+
+**A fix was derived from that, implemented, measured, and reverted.** The
+argument was that `jt12_top` mixes `fm_snd + {psg_snd,5'd0}`, FM at unity,
+while MAME routes all four streams at 0.5, so the FM was twice as loud
+relative to the SSG. That is wrong: `sandscrp_core.sv` already applies its own
+`>>> 1` to the combined term, so the FM reaches the output at 32767/2 = 16383,
+which is exactly MAME's routed FM. Halving it again was measured against a
+30 s MAME capture with `tools/audio_compare.py`:
+
+| | mean band corr | mean level diff |
+|---|---:|---:|
+| before | 0.979 | +1.2 dB |
+| after (FM halved) | 0.979 | +1.5 dB |
+
+Every band got 0.1-0.5 dB worse and the correlation did not move. Reverted,
+with the reasoning left in the RTL beside the mix so it is not re-derived.
+
+**What the whole-mix measurement actually says.** Against MAME's stock render
+over the full 30 s, the core scores **0.979 mean band correlation** — the
+`docs/PLAN.md` gate is 0.95 — with MAME uniformly about 1.8 dB louder across
+all 24 bands (+1.9 at 60 Hz, +1.6 at 2.5 kHz, -1.1 at 15 kHz). That is a
+near-flat level offset, not the spectral tilt this entry previously recorded.
+The earlier 0.62 figure came from a shorter, differently-aligned capture and
+should not be trusted over this one.
+
+So the level question is closed at the mix level, and what remains open in
+SS-10 is only the original symptom: the FM makes a sound during boot that MAME
+does not. That is a state/reset question in jt03, not a gain question, and the
+isolation capture confirms it is FM-only — the SSG is exactly zero for the
+first 10 s in both models.
