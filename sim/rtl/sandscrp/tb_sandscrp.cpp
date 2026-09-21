@@ -10,6 +10,8 @@
 //   TB_DSW1/TB_DSW2  DIP bytes (defaults EF/FF, the .mra defaults)
 //   TB_FLIP       OSD flip
 //   TB_AUDIO      raw signed 16-bit mono at 48 kHz to this path
+//   TB_AUDIO_FM   the YM2203's FM half alone, same rate and format
+//   TB_AUDIO_PSG  its SSG half alone, scaled as jt12_top mixes it
 //   TB_COIN/TB_START  frame at which to hold coin 1 / start 1 for 8 frames
 //   TB_FIRE       frame from which to autofire (4 on, 4 off)
 //   TB_REPORT     frames between progress lines (default 300)
@@ -64,6 +66,11 @@ int main(int argc, char **argv) {
 	const long fire_f  = envu("TB_FIRE", 0xffffffff);
 	const char *audio_path = getenv("TB_AUDIO");
 	FILE *af = audio_path ? fopen(audio_path, "wb") : nullptr;   // opened BEFORE the long loop
+	// SS-10 isolation: the same 48 kHz tap taken on each half of the YM2203 by
+	// itself. MAME presents FM and SSG as two separate streams, so the mix on
+	// its own cannot say which of the two is at the wrong level.
+	FILE *af_fm  = getenv("TB_AUDIO_FM")  ? fopen(getenv("TB_AUDIO_FM"),  "wb") : nullptr;
+	FILE *af_psg = getenv("TB_AUDIO_PSG") ? fopen(getenv("TB_AUDIO_PSG"), "wb") : nullptr;
 
 	top.p1_i = top.p2_i = top.sys_i = 0xff;
 	top.dsw1_i = envu("TB_DSW1", 0xEF);
@@ -291,9 +298,13 @@ int main(int argc, char **argv) {
 				nonblank_last = nb;
 			}
 		}
-		if (af && ++audio_acc >= AUDIO_DIV) {
+		if ((af || af_fm || af_psg) && ++audio_acc >= AUDIO_DIV) {
 			audio_acc = 0;
-			int16_t s = top.snd; fwrite(&s, 2, 1, af);
+			if (af_fm)  { int16_t f = top.dbg_fm_snd;  fwrite(&f, 2, 1, af_fm); }
+			// psg_snd is 10-bit unsigned; <<5 is exactly how jt12_top adds it
+			// to the FM term, so dump it on the same scale it is mixed at.
+			if (af_psg) { int16_t p = (int16_t)(top.dbg_psg_snd << 5); fwrite(&p, 2, 1, af_psg); }
+			int16_t s = top.snd; if (af) fwrite(&s, 2, 1, af);
 		}
 	}
 	if (af) fclose(af);

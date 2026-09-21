@@ -31,6 +31,8 @@ module sandscrp_ref_top #(
 	output [23:0] rd_rgb,
 	output signed [15:0] snd,
 
+	output signed [15:0] dbg_fm_snd,
+	output        [9:0]  dbg_psg_snd,
 	output [31:0] dbg_ym_writes, dbg_oki_writes, dbg_spr_pass_cycles, dbg_wdog_resets,
 	output [15:0] dbg_spr_late_swaps, dbg_ram70,
 	output [31:0] dbg_reads_rom, dbg_reads_ram, dbg_writes_ram, dbg_acc_other,
@@ -97,6 +99,7 @@ module sandscrp_ref_top #(
 		.dbg_m68k_pc_addr(), .dbg_ym_writes(dbg_ym_writes), .dbg_oki_writes(dbg_oki_writes),
 		.dbg_spr_pass_cycles(dbg_spr_pass_cycles), .dbg_spr_late_swaps(dbg_spr_late_swaps),
 		.dbg_wdog_resets(dbg_wdog_resets), .dbg_ym_snd(), .dbg_oki_snd(),
+		.dbg_fm_snd(dbg_fm_snd), .dbg_psg_snd(dbg_psg_snd),
 		.dbg_ram70(dbg_ram70), .dbg_reads_rom(dbg_reads_rom), .dbg_reads_ram(dbg_reads_ram),
 		.dbg_writes_ram(dbg_writes_ram), .dbg_acc_other(dbg_acc_other), .dbg_last_other(dbg_last_other)
 	);
