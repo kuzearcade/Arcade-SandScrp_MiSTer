@@ -574,3 +574,13 @@ vendored `hiscore.v` no longer validates the `.nvm` before a restore
 (SS-16), so a saved table survives the reload after play. Seed 1, timing
 met (setup +0.385 ns, hold +0.234 ns). On the board all three sets save
 MAME's table and restore a changed one, its last byte included.
+
+## 2026-10-06 — The tracked bitstream, rebuilt for SS-17
+
+`releases/Arcade-SandScrp_20261006.rbf` (md5
+`475faf058d35fe2769e8f14130fc1ac7`) replaces the earlier build of the same
+name: `video_retime` gives sync from the moment the core is loaded and a
+black picture while the raster is held (SS-17), so analog and direct video
+keep the loading screen. Seed 1, timing met (setup +0.473 ns, hold
++0.247 ns). With direct video on, Sand Scorpion's signal appears 4.0 s after
+the load (6.0 s on the release); over HDMI it boots and plays as before.
