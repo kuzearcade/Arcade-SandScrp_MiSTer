@@ -565,3 +565,12 @@ invoked directly. A bitstream built that way carries whatever date the file
 already held, so it can be named for today and report a week-old version in the
 OSD. Run `quartus_sh -t sys/build_id.tcl <project> <revision>` first, or build
 through a full flow.
+
+## 2026-10-06 — The tracked bitstream, rebuilt for SS-16
+
+`releases/Arcade-SandScrp_20261006.rbf` (md5
+`40798d5d6f75e68fdcf74dcf9c244ea4`) replaces the 20260920 build: the
+vendored `hiscore.v` no longer validates the `.nvm` before a restore
+(SS-16), so a saved table survives the reload after play. Seed 1, timing
+met (setup +0.385 ns, hold +0.234 ns). On the board all three sets save
+MAME's table and restore a changed one, its last byte included.

@@ -662,3 +662,25 @@ SS-10 is only the original symptom: the FM makes a sound during boot that MAME
 does not. That is a state/reset question in jt03, not a gain question, and the
 isolation capture confirms it is FM-only — the SSG is exactly zero for the
 first 10 s in both models.
+
+## SS-16 — High scores lost: the dump validation removed (CLOSED, measured)
+
+The vendored `hiscore.v` carried NMK16's dump validation (NMK-33 there):
+before a restore, each record's first and last byte in the `.nvm` were
+compared with `hiscore.dat`'s start/end values, and the dump was discarded
+on a mismatch. Neither of Sand Scorpion's end bytes is safe: the second
+record is the top-score display (main RAM 0x0048, its last byte the score's
+low digits), and in MAME the first record's last three bytes (0x2061-0x2063,
+0x1b at boot) turn to 0x00 during play, so a table saved after enough play
+was thrown away at the next load whatever the scores. NMK16 removed it
+(NMK-37); so does this, from the same file (byte for byte but the note's
+issue numbers). Only the RAM's start and end bytes are checked before the
+restore, as upstream.
+
+On the board (`Arcade-SandScrp_20261006.rbf`, all three sets, High Scores
+On), with a coin, a start and 15 s of play the OSD's save is MAME's RAM at
+the same point, byte for byte; a byte inside the largest record, and
+separately its last byte, changed in the `.nvm` and the core reloaded: a
+savestate holds the changed record and not the saved one, and the next save
+keeps it. On the release (20260920) the last-byte change was reverted in
+all three. Timing met at seed 1 (setup +0.385 ns, hold +0.234 ns).

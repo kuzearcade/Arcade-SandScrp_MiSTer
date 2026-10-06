@@ -333,7 +333,7 @@ Arcade-SandScrp_MiSTer/
 `deps.lock`/headers noting the forks): `sys/`, `Template.*`, `clean.bat`,
 `.gitignore`, `tools/bootstrap.sh` + `deps.lock` entries for fx68k, t80,
 jt12, jt6295, hiscore (forked: dpram_hs M10K template + the dump-validation
-pass), crt_adjust (forked crt_vsize: ring_q2 register, 4x2 sqrt, registered
+pass, the latter removed in SS-16), crt_adjust (forked crt_vsize: ring_q2 register, 4x2 sqrt, registered
 ring write), the `rtl/sdram.sv` fork (96 MHz CDC, single DQ capture,
 `done_port` mask, pair reads, `REFRESH_CYCLES` for 96 MHz), `sdram_req.sv`
 (edge-triggered accept), `sdram_arb.sv` (hold-off after service),
@@ -471,7 +471,7 @@ its clock groups from the `foreach_in_collection` pattern over
 | Autofire | h1 on `<switches>` byte 2 bit 6; button 3 = plain fire while on | CONF_STR `J1,Shot,Bomb,Button 3,Start,Coin` with a five-entry `<buttons>` in every `.mra` (count is load-bearing) |
 | DIP submenu | `DIP;` + index 254 capture | bytes 0/1 → jt03 IOA/IOB; F2 service toggle XOR on DSW2 bit 7 |
 | Pause | `O[29]`, phase-pair gated 68000 enable, `cen`-gated Z80/YM/OKI, audio muted, **watchdog paused too** | |
-| High scores | hiscore fork, `<rom index="3">` + `<nvram index="4">`, RAM port mux under `pause_cpu`, `hs_active` gating, dA greying, dump validation | entries at main RAM 0x2014 (0x50) and 0x0048 (4); Off by default as in NMK16 (decision point: it could default On now that NMK-24 is understood, but keep parity unless the user says otherwise) |
+| High scores | hiscore fork, `<rom index="3">` + `<nvram index="4">`, RAM port mux under `pause_cpu`, `hs_active` gating, dA greying, dump validation (removed: SS-16) | entries at main RAM 0x2014 (0x50) and 0x0048 (4); Off by default as in NMK16 (decision point: it could default On now that NMK-24 is understood, but keep parity unless the user says otherwise) |
 | Cheats | `cheats.sv`, `<rom index="5">` from Pugsy's `sandscrp.xml` | slot names fixed in CONF_STR: Infinite Credits, P1/P2 Invincibility, P1/P2 Infinite Lives, P1/P2 Infinite Bombs — Pugsy has all but P1 Invincibility (only P2 is listed; verify the file, hide the missing slot with `status_menumask`) |
 | Savestates | engine + `ss_m68k_park` (overlay at an unmapped address, e.g. 0x1E8000 — unmapped here) + `ss_z80_park` (NMI overlay at 0x0066; the game's own NMI handler lives there, which the overlay design already handles) | image: mainram 64 KB, 2 x VRAM 2 KB, 2 x scroll 1 KB, sprite RAM 4 KB, palette 4 KB, Z80 RAM 8 KB, VIEW2 regs, IRQ flags, latches + full flags, Z80 bank, CALC1 regs, Pandora buffer index, FM shadow (YM2203: replay key-on as key-off, skip 0x2C-0x2F); load waits 2 extra vblanks for the sprite double buffer; OKI not restored |
 | Keyboard | MAME defaults: 5/6 coins, 1/2 starts, 9 service, F2 service DIP, arrows + Left Ctrl/Alt (shot/bomb), Space as button 3 | from the NMK16 block |
