@@ -132,7 +132,7 @@ BODY = '''<misterromdescription>
        Button 3 (plain fire while Autofire is on), Start, Coin. -->
   <buttons names="Shot,Bomb,Button 3,Start,Coin" default="Y,B,A,Start,R"/>
 
-  <rom index="0" zip="{zip}" md5="none">
+  <rom index="0" zip="{zip}" md5="none" address="0x30000000">
 {parts}  </rom>
 </misterromdescription>
 '''

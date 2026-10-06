@@ -150,17 +150,17 @@ and closes timing on the default seed:
 
 | | |
 |---|---|
-| Logic (ALMs) | 18,839 of 41,910 (45 %) |
-| Registers | 26,340 |
+| Logic (ALMs) | 19,042 of 41,910 (45 %) |
+| Registers | 26,842 |
 | M10K blocks | 342 of 553 (62 %) |
 | Block memory bits | 2,517,975 of 5,662,720 (44 %) |
 | DSP blocks | 45 of 112 (40 %) |
 | PLLs | 3 of 6 |
-| Worst setup slack | +0.473 ns, on the framework's HDMI clock |
-| Worst hold slack | +0.247 ns |
+| Worst setup slack | +0.372 ns, on the framework's HDMI clock |
+| Worst hold slack | +0.250 ns |
 
 The core's own clocks are well clear of the critical path: `clk_ram` and
-`CLK_VIDEO` (96 MHz) at +1.917 ns setup, `clk_sys` (48 MHz) at +4.924 ns.
+`CLK_VIDEO` (96 MHz) at +2.061 ns setup, `clk_sys` (48 MHz) at +4.942 ns.
 
 The tracked `.rbf` is the build that boots and plays on a DE10-Nano. It is
 still not a release: most of the OSD feature set has never been exercised on

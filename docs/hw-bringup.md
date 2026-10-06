@@ -584,3 +584,12 @@ black picture while the raster is held (SS-17), so analog and direct video
 keep the loading screen. Seed 1, timing met (setup +0.473 ns, hold
 +0.247 ns). With direct video on, Sand Scorpion's signal appears 4.0 s after
 the load (6.0 s on the release); over HDMI it boots and plays as before.
+
+## 2026-10-06 — The tracked bitstream, rebuilt for SS-18
+
+`releases/Arcade-SandScrp_20261006.rbf` (md5
+`67bc19f9c81ad0aa19d01e6dcfbcd7bf`) replaces the earlier build of the same
+name: DDR3 ROM loading (SS-18), the three `.mra` files carrying
+`address="0x30000000"`. Sand Scorpion's game runs 2.3 s sooner after the
+load; the old `.mra` loads as before, and the high scores save and restore.
+Seed 1, timing met (setup +0.372 ns, hold +0.250 ns).

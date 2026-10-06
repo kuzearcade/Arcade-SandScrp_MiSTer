@@ -42,7 +42,7 @@
        Button 3 (plain fire while Autofire is on), Start, Coin. -->
   <buttons names="Shot,Bomb,Button 3,Start,Coin" default="Y,B,A,Start,R"/>
 
-  <rom index="0" zip="sandscrpb.zip|sandscrp.zip" md5="none">
+  <rom index="0" zip="sandscrpb.zip|sandscrp.zip" md5="none" address="0x30000000">
     <!-- maincpu 0x080000 @ 0x000000: 68000 pair, odd-offset file first (map=01) -->
     <interleave output="16">
       <part crc="8df1d42f" name="12.ic5" map="01"/>

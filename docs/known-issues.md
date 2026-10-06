@@ -719,3 +719,43 @@ menu's "Sending" screen is now on black, where it showed whatever the
 stopped core was putting out.
 
 Timing met at the project's seed (setup +0.473 ns, hold +0.247 ns).
+
+## SS-18 — DDR3 ROM loading (CLOSED, measured)
+
+With `address="0x30000000"` on an `.mra`'s `<rom index="0">`, Main_MiSTer
+assembles the ROM image straight into DDR3 and only frames it with a
+download (ioctl_addr carrying the length, no writes); streamed, the image
+crosses the HPS bridge at about 1 MB/s (one byte per HPS transfer).
+`rtl/ddr_rom_load.sv` sits between hps_io and the core:
+
+- a streamed download passes straight through (an `.mra` without `address=`
+  still loads, checked on the board);
+- a download on index 0 that ends with no write is a DDR3 load: the image
+  is read back from DDR3 (one 64-bit read at a time, one word prefetched)
+  and replayed to the core's loaders as the download it replaces, one write
+  at a time, at least 8 clocks apart and never while the core holds
+  ioctl_wait. The core sees one download from the first rise to the last
+  replayed byte, so its reset and settling span the replay;
+- hps_io's later downloads (the `<switches>`, the hiscore config, the
+  `.nvm`) wait on ioctl_wait until the replay is done.
+
+The reads take the savestate engine's place on the DDRAM port (that engine
+is idle during a download) and give way to screen_rotate's writes. The
+`.mra` generators write `address=`, and every `.mra` in `releases/` has it.
+A unit test (both widths, unrelated clocks, a random DDR3 latency, busy and
+rotation cycles, a random ioctl_wait) checks every byte and address, the
+`<switches>` download started during a replay, and a streamed download after
+it.
+
+On the board, the largest set loaded through its `.mra`, how much earlier
+the game runs than on the release (the two HDMI recordings aligned on the
+game's own frames):
+
+| Set | Image | Earlier |
+|---|---|---|
+| Sand Scorpion | 3.0 MB | 2.3 s |
+
+The old `.mra` (no `address=`) loads the same as on the release, and the
+high scores save and restore after a DDR3 load (the hiscore config and the
+`.nvm` arrive after the replay). Timing met at seed 1 (setup +0.372 ns, hold
++0.250 ns).
