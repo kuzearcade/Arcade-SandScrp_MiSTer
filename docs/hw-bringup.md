@@ -593,3 +593,11 @@ name: DDR3 ROM loading (SS-18), the three `.mra` files carrying
 `address="0x30000000"`. Sand Scorpion's game runs 2.3 s sooner after the
 load; the old `.mra` loads as before, and the high scores save and restore.
 Seed 1, timing met (setup +0.372 ns, hold +0.250 ns).
+
+## 2026-10-07 — The tracked bitstream, rebuilt for SS-19
+
+`releases/Arcade-SandScrp_20261007.rbf` (md5
+`b1b4d184a2ae74ed5060b21ff99cfa23`) replaces the 20261006 build: the reset
+ends where `video_retime` asks, so the raster restarts in phase with the sync
+(SS-19) and an OSD Reset no longer makes a direct-video capture lose the
+picture. Seed 1, timing met (setup +0.693 ns, hold +0.246 ns).
