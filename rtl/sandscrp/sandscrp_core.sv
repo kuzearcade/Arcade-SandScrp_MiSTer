@@ -575,7 +575,19 @@ module sandscrp_core #(
 	wire       z80_m1_n, z80_mreq_n, z80_iorq_n, z80_rd_n, z80_wr_n, z80_rfsh_n, z80_halt_n, z80_busak_n;
 	// NMI while latch 0 holds data the Z80 has not read (generic_latch_8's
 	// data_pending_callback). The sound driver's every command arrives this way.
-	wire z80_nmi_n = ~latch_full[0] & ~z80_nmi_park;
+	// SS-21: the park takes the first NMI entry while ss_freeze is up, so a
+	// command's NMI landing there entered the monitor instead of the driver's
+	// handler, the latch was never read, and the line stayed low: no edge ever
+	// again, no command, no park. While a savestate runs the latch is kept off
+	// the line, and the park's own NMI waits until the line has been high for
+	// 2048 clocks (a command's NMI already pending enters the monitor by then,
+	// and the park NMI is never raised). A command still in the latch at the
+	// end gives a fresh edge to the driver's handler.
+	reg  [11:0] z80_park_arm = 12'd0;
+	always @(posedge clk_sys)
+		if (!ss_freeze) z80_park_arm <= 12'd0;
+		else if (~&z80_park_arm) z80_park_arm <= z80_park_arm + 12'd1;
+	wire z80_nmi_n = ss_freeze ? ~(z80_nmi_park & (&z80_park_arm)) : ~latch_full[0];
 	wire z80_nmi_park, z80_sel_mon;
 	wire [7:0] z80_mon_data;
 	wire ym_irq_n;

@@ -25,6 +25,8 @@
 //                 round trip that restored everything therefore puts the two
 //                 on the same timeline, and those two frames must be identical.
 //   TB_SS_SLOT    slot 0-3 (default 0)
+//   TB_SS_EVERY=P repeated saves: one every P frames from TB_SS_SAVE, each result
+//                 printed and the run carried on (SS-21: saves stop after a few)
 //
 //   TB_SS_DIFF=1  the state-level test, which names the missing words instead
 //                 of inferring them from where sprites landed:
@@ -92,6 +94,8 @@ int main(int argc, char **argv) {
 	const bool ss_diff_mode = envu("TB_SS_DIFF", 0) != 0;
 	const long ss_k   = envu("TB_SS_K", 10);
 	const long ss_gap = envu("TB_SS_GAP", 20);
+	const long ss_every = envu("TB_SS_EVERY", 0);
+	long ss_n_ok = 0, ss_n_fail = 0;
 	long ss_next_frame = -1;           // when the next scheduled request fires
 	int  ss_phase = 0;                 // 0 idle, 1 saving, 2 saved, 3 loading, 4 loaded
 	int  ss_result = 2;                // 0 pass, 1 fail, 2 incomplete
@@ -132,6 +136,12 @@ int main(int argc, char **argv) {
 			}
 		}
 		if (ss_clear) { top.ss_save = 0; top.ss_load = 0; ss_clear = false; }
+		if (ss_every && (top.ss_done_ok || top.ss_done_fail)) {
+			if (top.ss_done_ok) ss_n_ok++; else ss_n_fail++;
+			printf("savestate: save %ld %s (code %d) at frame %ld\n", ss_n_ok + ss_n_fail,
+			       top.ss_done_ok ? "ok" : "FAILED", (int)top.ss_fail_code, frame);
+			fflush(stdout);
+		} else
 		if (ss_diff_mode && top.ss_done_ok) {
 			// 1 = slot0 saving, 3 = slot1 saving, 5 = loading slot0, 7 = slot2 saving
 			if (ss_phase == 1) {
@@ -270,7 +280,12 @@ int main(int argc, char **argv) {
 					fflush(stdout);
 				}
 			}
-			if (!ss_diff_mode && frame == ss_save_frame && ss_phase == 0) {
+			if (ss_every && ss_save_frame >= 0 && frame >= ss_save_frame &&
+			    (frame - ss_save_frame) % ss_every == 0 && !top.ss_busy) {
+				top.ss_save = 1; ss_clear = true;
+				printf("savestate: SAVE requested at frame %ld\n", frame); fflush(stdout);
+			}
+			if (!ss_every && !ss_diff_mode && frame == ss_save_frame && ss_phase == 0) {
 				top.ss_save = 1; ss_clear = true; ss_phase = 1;
 				printf("savestate: SAVE requested at frame %ld\n", frame); fflush(stdout);
 			}
@@ -308,10 +323,13 @@ int main(int argc, char **argv) {
 		}
 	}
 	if (af) fclose(af);
-	if (ss_save_frame >= 0)
+	if (ss_every)
+		printf("savestate repeated: %ld ok, %ld failed\n", ss_n_ok, ss_n_fail);
+	else if (ss_save_frame >= 0)
 		printf("savestate round trip: %s\n", ss_result == 0 ? "PASS" : ss_result == 1 ? "FAIL" : "INCOMPLETE (run longer)");
 	printf("done: %ld frames, ym_writes=%u oki_writes=%u watchdog_resets=%u sprite_pass=%u late_swaps=%u\n",
 	       frame, top.dbg_ym_writes, top.dbg_oki_writes, top.dbg_wdog_resets,
 	       top.dbg_spr_pass_cycles, top.dbg_spr_late_swaps);
+	if (ss_every) return ss_n_fail ? 1 : 0;
 	return (ss_save_frame >= 0 && ss_result != 0) ? 1 : 0;
 }

@@ -611,3 +611,13 @@ starts while a savestate runs, and one under way holds the CPU until it ends
 +0.195 ns). The same session found SS-21 (saves stop after the first few, on
 the release too, cheats or not) and SS-22 (Infinite Credits on at load leaves
 a green diagonal on the screen); both are open.
+
+## 2026-10-15 — The tracked bitstream, rebuilt for SS-21 (v2026-10-15.1)
+
+`releases/Arcade-SandScrp_20261015.rbf` (md5
+`4a696c9df48d990e8fc1b19bcb1d5636`) replaces the v2026-10-15 build of the same
+name: a sound command's NMI landing during a savestate's park no longer leaves
+the Z80's NMI line stuck low, which had stopped every save after the first few
+(SS-21). On the board 20 of 20 saves in play were written, then eight rounds
+of save and load; the release failed from the fourth to the sixth save. Seed
+1, timing met (setup +0.434 ns, hold +0.247 ns).

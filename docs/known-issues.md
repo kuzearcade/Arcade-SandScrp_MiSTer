@@ -7,8 +7,8 @@ closed by a measurement, never by reasoning.
 **Four are open.** Two of them (SS-1 and SS-6) cannot be answered anywhere but
 on the board; the other two are answerable in simulation and have simply not
 been chased yet.
-SS-21 and SS-22, both seen on the board on 2026-10-15, are open as well and
-not chased yet.
+SS-22, seen on the board on 2026-10-15, is open as well and not chased yet
+(SS-21, found the same day, is fixed).
 
 | | | |
 |---|---|---|
@@ -833,9 +833,9 @@ wrote its first five saves in play, the game running on.
 
 Seed 1, timing met (setup +0.574 ns, hold +0.195 ns).
 
-## SS-21 — Saves stop working after the first few, until the core is reloaded (OPEN)
+## SS-21 — Saves stop working after the first few, until the core is reloaded (CLOSED, measured)
 
-Seen on the board on 2026-10-15 while testing SS-20, not chased. A fresh load
+Seen on the board on 2026-10-15 while testing SS-20. A fresh load
 of Sand Scorpion, a game started, Alt+F1 every ~5 s in play:
 
 | core | cheats | saves written | then |
@@ -848,6 +848,37 @@ of Sand Scorpion, a game started, Alt+F1 every ~5 s in play:
 A save that is not written shows "Savestate failed" in MiSTer's overlay and
 the game runs on; once it starts, no save works until the core is loaded
 again. The fail code was not read. Loads were not tried in these runs.
+
+**Cause.** The Z80's NMI line was `~latch_full[0] & ~z80_nmi_park`: the sound
+driver takes every 68000 command through NMI, and the park uses NMI too. The
+park monitor is served from the first NMI-entry fetch at 0x0066 while
+`ss_freeze` is up. When a command's NMI arrived in that window (the game
+writes its commands in the vertical blank, where the park starts), that
+entry went into the monitor and not into the driver's handler. The latch
+was never read, `latch_full` held the line low, and a Z80 NMI needs a
+falling edge: no command reached the driver again, and no later park could
+reach the monitor (the save timed out, "Savestate failed").
+
+**Fix** (`sandscrp_core.sv`): while `ss_freeze` is up the latch is kept off
+the line, and the park's NMI is raised only once the line has been high for
+2048 clocks. A command NMI already pending enters the monitor within that
+time (the Z80 needs at most an instruction and the NMI acknowledge), and the
+park NMI, which ends once the monitor is entered, is then never raised, so the
+monitor is never entered twice. When `ss_freeze` drops, a command still in
+the latch gives the line a fresh falling edge and the driver's own handler
+reads it. T80 samples NMI_n on every clock, so the gap is far longer than it
+needs.
+
+On the board (`4a696c9d...`), a fresh load, a game started, Alt+F1 every ~5 s
+in play: 20 of 20 saves written; then eight rounds of a save and a load, every
+save written and every load back at the saved point with play going on. The
+release failed from the fourth to the sixth save in all three runs. A
+whole-board Verilator run with a save every 30 frames from frame 700
+(`TB_SS_EVERY`, new in `tb_sandscrp.cpp`) has its saves complete on this
+change; the release RTL in the same run had not met the window by its tenth
+save, so the simulation has not shown the failure itself.
+
+Seed 1, timing met (setup +0.434 ns, hold +0.247 ns).
 
 ## SS-22 — Infinite Credits on at load leaves a green diagonal on the screen (OPEN)
 
