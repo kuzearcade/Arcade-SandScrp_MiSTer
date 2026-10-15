@@ -601,3 +601,13 @@ Seed 1, timing met (setup +0.372 ns, hold +0.250 ns).
 ends where `video_retime` asks, so the raster restarts in phase with the sync
 (SS-19) and an OSD Reset no longer makes a direct-video capture lose the
 picture. Seed 1, timing met (setup +0.693 ns, hold +0.246 ns).
+
+## 2026-10-15 — The tracked bitstream, rebuilt for SS-20
+
+`releases/Arcade-SandScrp_20261015.rbf` (md5
+`613c967dc823b0bd43d332cf0cfb62c6`) replaces the 20261007 build: no cheat walk
+starts while a savestate runs, and one under way holds the CPU until it ends
+(SS-20, from NMKBP964's MP-20). Seed 1, timing met (setup +0.574 ns, hold
++0.195 ns). The same session found SS-21 (saves stop after the first few, on
+the release too, cheats or not) and SS-22 (Infinite Credits on at load leaves
+a green diagonal on the screen); both are open.

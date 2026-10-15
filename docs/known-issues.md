@@ -7,6 +7,8 @@ closed by a measurement, never by reasoning.
 **Four are open.** Two of them (SS-1 and SS-6) cannot be answered anywhere but
 on the board; the other two are answerable in simulation and have simply not
 been chased yet.
+SS-21 and SS-22, both seen on the board on 2026-10-15, are open as well and
+not chased yet.
 
 | | | |
 |---|---|---|
@@ -800,3 +802,58 @@ the card lost the picture after the reset; with this change the signal runs
 through it (Sand Scorpion). HDMI is as before.
 
 Timing met at seed 1 (setup +0.693 ns, hold +0.246 ns).
+
+## SS-20 — A savestate let the cheat walk take main RAM from a running CPU (CLOSED, measured)
+
+Found from NMKBP964's MP-20, where a save in Macross Plus with cheats on
+crashed the game back to its boot every time; this top had the same wiring.
+The savestate engine masks every pause source while it runs (`ss_busy`),
+because the CPUs have to execute to reach their park monitors, and the mask
+covered `ch_pause` too. The cheat engine still started its poke walk at each
+vblank, and the walk drives main RAM's back door (`hs_access` takes the
+RAM's address and turns the CPU's writes off) believing the CPU is held. So
+during a save the walk and the running CPU could meet on the port: a CPU read
+gets the walk's word and a CPU write is dropped. The park starts on the same
+vblank as the walk, and its level-7 exception pushes the 68000's PC and SR to
+the stack in main RAM: a dropped push resumes the game at a wrong address.
+
+- No walk starts while `ss_busy` is set (`.vblank(vblank_core & ~ss_busy)`).
+- `ch_pause` is outside the `ss_busy` mask, so a walk already under way when
+  a save starts holds the CPU until it ends (a few dozen clocks). No walk
+  starts after that, so the park is never held up.
+- `ss_busy` is declared ahead of the cheat block.
+
+The board cannot show this one either way here: SS-21 stops every save after
+the first few on the release and on this change alike, with cheats on or off.
+GingaNin's release, with the same wiring, wrote 15 of 15 saves with every
+cheat on: Macross Plus's 68EC020 met the walk every time, while a 68000's
+exception push evidently comes after the walk has ended, so the hole is there
+without showing. With this change, Sand Scorpion with all five cheats on
+wrote its first five saves in play, the game running on.
+
+Seed 1, timing met (setup +0.574 ns, hold +0.195 ns).
+
+## SS-21 — Saves stop working after the first few, until the core is reloaded (OPEN)
+
+Seen on the board on 2026-10-15 while testing SS-20, not chased. A fresh load
+of Sand Scorpion, a game started, Alt+F1 every ~5 s in play:
+
+| core | cheats | saves written | then |
+|---|---|---|---|
+| release (`b1b4d184...`) | all five on | 5 | the next 15 not written |
+| release | off | 3 | the next 3 not written (the game then ended) |
+| release, same run, 12 s apart | off | 0 of 8 | |
+| this release (SS-20) | all five on | 5 | the next 10 not written |
+
+A save that is not written shows "Savestate failed" in MiSTer's overlay and
+the game runs on; once it starts, no save works until the core is loaded
+again. The fail code was not read. Loads were not tried in these runs.
+
+## SS-22 — Infinite Credits on at load leaves a green diagonal on the screen (OPEN)
+
+Seen on the board on 2026-10-15, not chased. With Infinite Credits saved on
+in the CFG (status bit 32), the load ends on a black screen crossed by one
+green diagonal band, before any input, and stays there. With the cheat off
+at load and turned on from the OSD in play, it works. The cheat writes 9 to
+0x700000 from the first frame, so the boot's RAM test is the obvious
+suspect; MAME has not been asked what it does with the cheat on at boot.
