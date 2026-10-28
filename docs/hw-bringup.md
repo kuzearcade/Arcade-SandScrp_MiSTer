@@ -621,3 +621,13 @@ the Z80's NMI line stuck low, which had stopped every save after the first few
 (SS-21). On the board 20 of 20 saves in play were written, then eight rounds
 of save and load; the release failed from the fourth to the sixth save. Seed
 1, timing met (setup +0.434 ns, hold +0.247 ns).
+
+## 2026-10-27 — upstream jt12, the SSG at MAME's level (v2026-10-27, SS-23)
+
+`releases/Arcade-SandScrp_20261027.rbf` (md5
+`ab18ce18bdeac81c4ff28a8202995546`) replaces `Arcade-SandScrp_20261015.rbf`:
+jt12 is upstream efa4068 (jt49 6f1247f) unmodified, and the core mixes the
+SSG on jt49's YM2203 table at x64 (SS-23; it was 5 dB quiet). On the board,
+the attract against MAME's full mix: mean level difference +1.1 / +0.2 dB in
+two runs (v2026-10-15: +2.0 dB). Seed 1, timing met (setup +0.573 ns, hold
++0.188 ns).

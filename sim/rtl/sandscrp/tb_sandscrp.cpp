@@ -316,8 +316,9 @@ int main(int argc, char **argv) {
 		if ((af || af_fm || af_psg) && ++audio_acc >= AUDIO_DIV) {
 			audio_acc = 0;
 			if (af_fm)  { int16_t f = top.dbg_fm_snd;  fwrite(&f, 2, 1, af_fm); }
-			// psg_snd is 10-bit unsigned; <<5 is exactly how jt12_top adds it
-			// to the FM term, so dump it on the same scale it is mixed at.
+			// psg_snd is 10-bit unsigned; the core mixes it as {psg,6'd0}
+			// (SS-23), which overflows 16 bits, so it is dumped at half that
+			// scale (<<5): double it to compare with the FM tap.
 			if (af_psg) { int16_t p = (int16_t)(top.dbg_psg_snd << 5); fwrite(&p, 2, 1, af_psg); }
 			int16_t s = top.snd; if (af) fwrite(&s, 2, 1, af);
 		}

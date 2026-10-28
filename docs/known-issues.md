@@ -888,3 +888,41 @@ green diagonal band, before any input, and stays there. With the cheat off
 at load and turned on from the OSD in play, it works. The cheat writes 9 to
 0x700000 from the first frame, so the boot's RAM test is the obvious
 suspect; MAME has not been asked what it does with the cheat on at boot.
+
+## SS-23 — The SSG was 5 dB quiet against MAME (CLOSED, measured)
+
+The pin before upstream jt12 efa4068 (3a4c423) gave the YM2203 jt49's
+compressed ~29 dB `COMP=1` volume curve, and the core used jt03's own mix,
+`fm + {psg,5'd0}` (the SSG at x32). NMK16 found that curve ~9 dB loud on
+Macross II's quiet SSG lines (its NMK-44); here the music sits on louder
+volumes, where the same curve is low.
+
+efa4068 (jt49 6f1247f) gives the YM2203 jt49's `COMP=5` table, the chip's
+~44 dB curve with fixed volumes on the odd envelope steps. The gain then
+follows from MAME's routes: the whole chip at 0.5, and ymfm's SSG channel
+peaks at 16382 where jt49's is 255, so the core now builds its YM2203 term
+itself as `fm + {psg,6'd0}` (18 bits, inside the existing halving and
+saturation).
+
+Measured by replaying MAME's YM2203 write log (a Lua tap on the Z80's I/O
+2-3) for 90 s of the attract into jt03 alone, against MAME patched with
+`SS_YM_ISO=fm|ssg`, DC removed:
+
+| source | vs MAME |
+|---|---:|
+| FM, old and new pin (bit-identical) | -0.40 dB |
+| SSG, x32 on `COMP=1` (before) | **-5.25 dB** |
+| SSG, x64 on `COMP=5` (now) | **+0.14 dB** |
+
+The Lua tap needs a once-only guard: Sand Scorpion resets itself at ~3 s,
+MAME runs the autoboot script again, and a second `io.open(..., "w")`
+truncated the log while the first tap kept writing into it.
+
+
+On the board (v2026-10-27), two 175 s captures of the attract against a 200 s
+MAME render of the full mix: mean level difference +1.1 and +0.2 dB
+(v2026-10-15: +2.0 dB), the 344 Hz-11 kHz bands from +1.2-1.9 dB down to
++0.1-1.0 dB, RMS 66.7 / 66.4 against MAME's 75.0 (was 61.8). Band correlation
+0.887 / 0.889 (was 0.909) moves with the demo's play, not the sound: in 20 s
+windows the gameplay stretches (20-40, 60-80, 100-120 s) are uncorrelated in
+all three runs, and the two new runs differ as much from each other there.

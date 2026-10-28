@@ -823,7 +823,15 @@ module sandscrp_core #(
 	// got 0.1-0.5 dB WORSE and the band correlation did not move. Reverted.
 	// The remaining difference is a near-flat 1.8 dB, not a spectral tilt --
 	// see docs/known-issues.md SS-10.
-	wire signed [17:0] ym_term  = {{2{ym_snd[15]}}, ym_snd};
+	// SS-23: the YM2203 term is no longer jt03's own snd (fm + {psg,5'd0},
+	// the SSG at x32): MAME routes the SSG at the same 0.5 as the FM, and
+	// ymfm's SSG channel peaks at 16382 where jt49's is 255, so the SSG weighs
+	// 16382/255 ~ 64 against jt03's FM. With upstream jt12 efa4068's YM2203
+	// volume table (jt49 COMP 5) that puts the SSG +0.14 dB from MAME (a
+	// replay of MAME's YM2203 write log into jt03 against MAME patched with
+	// SS_YM_ISO=ssg); the old x32 on the compressed COMP=1 curve was -5.25 dB.
+	// fm + {psg,6'd0} peaks at 32767 + 48960, inside the 18-bit term.
+	wire signed [17:0] ym_term  = {{2{fm_snd_w[15]}}, fm_snd_w} + $signed({2'd0, psg_snd_w, 6'd0});
 	wire signed [17:0] oki_term = {{2{oki_snd[13]}}, oki_snd, 2'b00};
 	wire signed [17:0] mix = (ym_term + oki_term) >>> 1;
 	assign snd = (mix > 18'sd32767)  ?  16'sd32767 :
