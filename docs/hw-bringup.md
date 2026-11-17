@@ -20,7 +20,7 @@ the evidence in `docs/known-issues.md`.
 | **M2 Full reference sim** | done — the whole board run from reset is **pixel-exact against MAME**, 43 of 44 frames matching once the two independent timelines are allowed to drift |
 | **M3 Hardware-path sim** | done — golden-byte audit **3,801,088 bytes, 0 wrong, 0 timeouts**; frames pixel-exact against MAME through the SDRAM path; sprite pass 106,797 clocks of a frame's 804,864 with 0 late swaps; savestate round trip verified at the state level |
 | **M4 Quartus and board** | **done bar two gates.** Builds clean (18,806 ALMs of 41,910, 342 of 553 M10K, timing closed first try), boots and plays on a DE10-Nano, and all three sets are swept on hardware. Took two black screens to get there — SS-15. Audio against MAME and a frame-level comparison with the reference sim are the two board gates still open |
-| **M5 Feature parity and release** | **mostly verified, and published.** On the board: DIP switches, Flip screen (an exact 180-degree turn), CRT Adjust, Pause, High scores including the patch-the-`.nvm` proof, and savestate save all pass; savestate load works but not on every attempt. Orientation cannot be observed with the tools here, cheats are inconclusive, autofire untested. The core ships through the kuzecores downloader database with all three `.mra` correctly tagged |
+| **M5 Feature parity and release** | **mostly verified, and published.** On the board: DIP switches, Flip screen (an exact 180-degree turn), CRT Adjust, Pause, High scores including the patch-the-`.nvm` proof, and savestate save and load all pass. Orientation cannot be observed with the tools here, cheats are inconclusive, autofire untested. The core ships through the kuzecores downloader database with all three `.mra` correctly tagged |
 
 ### What M4 still owes its gates
 
@@ -354,7 +354,7 @@ Two things made the results trustworthy that are worth keeping:
 | **CRT Adjust** | **Pass.** V-Size in Cabinet mode changes the real output geometry: +4 gives 236 active lines and -4 gives 221, against 224 with it off. |
 | **Pause** | **Pass.** With it on the machine is frozen and consecutive frames are identical; with it off the attract moves by about 55,000 pixels a frame. |
 | **High scores** | **Pass, end to end.** Opening the OSD writes `Sand Scorpion.nvm`, 84 bytes, exactly the size the `.mra` declares. Patching every rank in that file to the rank-10 value and reloading makes the in-game BEST TEN FIGHTERS table show that value for all ten ranks — the restore path, proven from the outside. |
-| **Savestates** | **Save passes.** `Sand Scorpion_1.ss` is 115,464 bytes, which is this core's declared image of 115,456 plus an 8-byte header. **Load works but not every time**: proven twice (after a core restart, attract → a live game; in-session on slot 2, game over → a live game restored), and once, in-session on slot 1, it did not restore. Not diagnosed. |
+| **Savestates** | **Save passes.** `Sand Scorpion_1.ss` is 115,464 bytes, which is this core's declared image of 115,456 plus an 8-byte header. **Load passes**: on v2026-11-17, three rounds in one session (slot 1 twice, slot 3 once; saved in play, on the CONTINUE countdown and on the title screen), every load back at its save point, and the 11 s of sound after each load matching the 11 s after its save (envelope corr. 0.90 / 1.00 / 1.00, every band within about 1 dB). |
 | **Coin, start, fire, movement** | **Pass.** Three coins put CREDITS 3 on the title screen. |
 
 ### What is still not verified, and why

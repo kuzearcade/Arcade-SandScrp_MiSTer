@@ -23,8 +23,8 @@ attract and plays.
 
 Most of the OSD feature set has now been checked on the board too: DIP
 switches, Flip screen (an exact 180-degree rotation), CRT Adjust, Pause, High
-scores including the patch-the-`.nvm` proof, and savestate save, with savestate
-load working but not on every attempt. Orientation cannot be observed with the
+scores including the patch-the-`.nvm` proof, and savestate save and load.
+Orientation cannot be observed with the
 tools to hand, cheats are inconclusive and autofire is untested; audio against
 MAME and a frame-level comparison with the reference simulation have not been
 run on hardware either.
