@@ -103,9 +103,11 @@ module sandscrp_core #(
 	input             z80rom_ready,
 	// jt6295's ADPCM fetch ignores rom_ok entirely (jt6295_rom.v), so a byte
 	// that has not arrived is used anyway: the OKI cache's STALL must be ANDed
-	// into the chip's cen instead. NMK16 shipped 37.6% stale sample bytes for a
+	// into the chip's cen. NMK16 shipped 37.6% stale sample bytes for a
 	// week before this was understood -- "corrupted sound effects" on the board,
-	// nothing at all in simulation.
+	// nothing at all in simulation. Its phrase-table read is the other way
+	// round: it runs on clk and waits only on rom_ok, so the same stall also
+	// drives rom_ok (SS-24).
 	input             okirom_stall,
 
 	// ------------------------------------------------------------------
@@ -790,7 +792,12 @@ module sandscrp_core #(
 	jt6295 #(.INTERPOL(0)) oki (
 		.rst(sys_reset), .clk(clk_sys), .cen(oki_cen & ~(HW_ROMS[0] & okirom_stall)), .ss(1'b1),
 		.wrn(~(oki_wr_hold != 6'd0)), .din(oki_din_latch), .dout(),
-		.rom_addr(oki_rom_addr), .rom_data(oki_rom_byte), .rom_ok(1'b1),
+		// rom_ok is the cache's ready (SS-24). The cen gate above freezes the
+		// ADPCM fetch, but the phrase-table read (8 bytes: a sample's start
+		// and stop address) runs on clk in jt6295_rom/jt6295_ctrl and waits
+		// on rom_ok alone. Tied high, a phrase-table miss handed the chip a
+		// stale byte as an address. Same defect as JalecoMS1BCD's MS1-77.
+		.rom_addr(oki_rom_addr), .rom_data(oki_rom_byte), .rom_ok(~(HW_ROMS[0] & okirom_stall)),
 		.sound(oki_snd), .sample()
 	);
 

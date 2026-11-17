@@ -631,3 +631,15 @@ SSG on jt49's YM2203 table at x64 (SS-23; it was 5 dB quiet). On the board,
 the attract against MAME's full mix: mean level difference +1.1 / +0.2 dB in
 two runs (v2026-10-15: +2.0 dB). Seed 1, timing met (setup +0.573 ns, hold
 +0.188 ns).
+
+## 2026-11-17 — the OKI waits on its cache for the phrase table (v2026-11-17, SS-24)
+
+`releases/Arcade-SandScrp_20261117.rbf` (md5
+`6ef9de4f122ae407aa51400eb735b504`) replaces `Arcade-SandScrp_20261027.rbf`:
+jt6295's `rom_ok` is the OKI cache's ready instead of `1'b1`, so a
+phrase-table miss no longer hands the chip a stale start or stop address
+(SS-24, from JalecoMS1BCD's MS1-77). `sim/rtl/oki_romok_test`: 59864 of
+60000 samples wrong before, 0 after. On the board no change above
+run-to-run variation over 100 s of play, and sound as before. Seed 1, timing
+met (setup +0.539 ns, hold +0.227 ns).
+

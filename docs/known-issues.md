@@ -926,3 +926,53 @@ MAME render of the full mix: mean level difference +1.1 and +0.2 dB
 0.887 / 0.889 (was 0.909) moves with the demo's play, not the sound: in 20 s
 windows the gameplay stretches (20-40, 60-80, 100-120 s) are uncorrelated in
 all three runs, and the two new runs differ as much from each other there.
+
+## SS-24 — The OKI read its phrase table through a cache miss (CLOSED, measured)
+
+Found from JalecoMS1BCD's MS1-77 (issue #6 there: wrong drum sounds in
+Avenging Spirit on the board), which uses the same `oki_rom_cache` and
+jt6295.
+
+`sandscrp_core.sv` ANDs the OKI cache's `stall` out of jt6295's `cen`, which
+is right for the ADPCM fetch: that path ignores `rom_ok`, and the gate is what
+stopped NMK16's 37.6 % stale sample bytes. The phrase-table read works the
+other way round. Each sample start reads 8 bytes (start and stop address)
+through `jt6295_rom` and `jt6295_ctrl`, both on `clk`, not `cen`, gated only
+by `rom_ok`, and `rom_ok` was tied high. So on a phrase-table miss the chip
+took whatever byte the cache was showing. A frozen `cen` does not hold that
+read back.
+
+Fix: `.rom_ok(~(HW_ROMS[0] & okirom_stall))`.
+
+**Simulation** (`sim/rtl/oki_romok_test`, new). Two jt6295s on identical
+commands, each delivered at the same sample index of its own chip. One reads
+`sandscrp_oki.hex` from an array, the other through `oki_rom_cache`,
+`sdram_arb` (shared with a busy Z80-like reader, as port 3 is), `sdram` and
+`sdram_model`, with `cen` gated by the stall. 400 starts of the ROM's 20
+valid phrases over 60000 samples:
+
+| cache-fed chip's `rom_ok` | samples differing from the array-fed chip |
+|---|---|
+| `1'b1` (before) | 59864 / 60000, error 4.4 dB above the signal |
+| the cache's ready (now) | **0** |
+
+The test is harsher than the game: random phrases on four voices keep
+pushing the phrase table out of the 16-line cache.
+
+**Board** (192.168.1.138, build md5 `6ef9de4f122ae407aa51400eb735b504`; 46 %
+ALMs, 342/553 RAM blocks, setup +0.539 / hold +0.227 ns). HDMI audio, 100 s
+from load through a coin and start, two runs on each build. The board plays
+a different game from MAME after the start (the demo-play divergence of
+SS-23), so the builds were compared with each other in 2 s windows of the
+log envelope:
+
+| pair | mean window corr. |
+|---|---|
+| v2026-10-27 vs v2026-10-27 | 0.883 |
+| this build vs this build | 0.897 |
+| v2026-10-27 vs this build | 0.873-0.903 |
+
+The fix makes no difference above run-to-run variation in that stretch. On
+this game the defect is real (the simulation shows it) but rare or
+inaudible, presumably because the game starts samples less often than the
+test, so the phrase-table lines stay resident. Sound plays as before.
